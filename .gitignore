@@ -12,6 +12,9 @@ screen-*.bmp
 *.bak
 *~
 
+# Generated HTML files
+*.html
+
 # Work-in-progress graphics files...
 *.pdn
 
