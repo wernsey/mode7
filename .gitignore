@@ -1,0 +1,21 @@
+*.o
+
+# Executables:
+*.exe
+mode7
+
+# Log files, screenshots
+*.log
+screen-*.bmp
+
+# Backup files
+*.bak
+*~
+
+# Work-in-progress graphics files...
+*.pdn
+
+.gdbinit
+
+# Generated documentation:
+mode7.html

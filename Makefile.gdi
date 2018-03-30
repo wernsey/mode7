@@ -1,0 +1,44 @@
+CC=gcc
+BUILD=debug
+
+CFLAGS= -c -Wall -Igdi -I.
+LDFLAGS= -mwindows
+
+# Add your source files here:
+SOURCES=gdi/gdi.c bmp.c render.c mode7.c
+
+OBJECTS=$(SOURCES:.c=.o)
+EXECUTABLE=mode7.exe
+
+ifeq ($(BUILD),debug)
+# Debug
+CFLAGS += -O0 -g
+LDFLAGS +=
+else
+# Release mode
+CFLAGS += -O2 -DNDEBUG
+LDFLAGS += -s
+endif
+
+all: $(EXECUTABLE)
+
+debug:
+	make BUILD=debug
+
+$(EXECUTABLE): $(OBJECTS)
+	$(CC) $(OBJECTS) $(LDFLAGS) -o $@
+	
+.c.o:
+	$(CC) $(CFLAGS) $< -o $@
+
+# Add header dependencies here
+render.o : render.c gdi/gdi.h mode7.h
+mode7.o : mode7.c bmp.h mode7.h
+bmp.o : bmp.c bmp.h
+gdi.o : gdi/gdi.c gdi/gdi.h bmp.h app.h
+
+.PHONY : clean
+
+clean:
+	-rm -f *.o $(EXECUTABLE) $(EXECUTABLE).exe
+	-rm -f *.log dump.txt
