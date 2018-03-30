@@ -145,7 +145,7 @@ int render(double elapsed) {
     double x, y, z;
     double phi, theta;
 
-    int row = 0, col = 0;
+    int row = 1, col = 1;
 
     double rel_angle = m7_rel_angle(spr_angle);
 
@@ -178,9 +178,7 @@ int render(double elapsed) {
         case 2: col = 2; break;
         case 3: col = 1; break;
         }
-    } else
-        col = 1;
-    row = 1;
+    } 
 
     rel_angle += M_PI / 4;
     if(rel_angle >= 2.0 * M_PI) rel_angle -= 2.0 * M_PI;
@@ -190,15 +188,18 @@ int render(double elapsed) {
         case 2: row = 2; break;
         case 3: row = 3; break;
     }
-    bm_set_color(screen, bm_atoi("white"));
-    bm_printf(screen, 5, screen->h - 8, "rel: %.2f (%.2f): %d => %d", rel_angle*180/M_PI, spr_angle*180/M_PI, (int)(4.0 * rel_angle / (2.0 * M_PI)), row);
-
+    
     m7_draw_sprite(screen, spr_x, 0, spr_z, guy, col * 24, row * 32, 24, 32);
 
     m7_get_camera_pos(&x, &y, &z);
     m7_get_camera_ang(&phi, &theta);
-    bm_printf(screen, 10, 20, "p:%.f t:%.f", phi*180/M_PI, theta*180/M_PI);
+    
+#if 0
+	bm_set_color(screen, bm_atoi("white"));
+    bm_printf(screen, 5, screen->h - 8, "rel: %.2f (%.2f): %d => %d", rel_angle*180/M_PI, spr_angle*180/M_PI, (int)(4.0 * rel_angle / (2.0 * M_PI)), row);
+	bm_printf(screen, 10, 20, "p:%.f t:%.f", phi*180/M_PI, theta*180/M_PI);
     bm_printf(screen, 10, 30, "x:%.f y:%.f z:%.f", x, y, z);
+#endif
 
     return 1;
 }

@@ -2,6 +2,8 @@
 
 [Mode7-style][wiki] graphics demo for SDL
 
+![sample](./docs/screen.png)
+
 ## Compiling 
 
 It has only been tested under Windows with the MinGW tools.
