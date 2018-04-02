@@ -17,7 +17,7 @@ int Line = 1;
 enum { V = 'A', VT, VN, VP, F, L } Types;
 
 static void nextsym();
-void error(const char *msg, ...) {
+static void error(const char *msg, ...) {
     va_list ap;
     va_start(ap, msg);
     fprintf(stderr, "\nerror:%d: ", Line);
@@ -182,25 +182,44 @@ static void parse_element(ObjMesh *obj) {
             // TODO: something something atoi(LastWord)
         }
     } else if(accept(F)) {
-        /* TODO: Wikipedia says that negative indices might be present.
-        https://en.wikipedia.org/wiki/Wavefront_.obj_file#Relative_and_absolute_indices
-        I use negative indices to indicate that the texture/normal index is unspecified,
-        which may lead to incompatibilities.
+        /* Wikipedia says that negative indices might be present. See #Relative_and_absolute_indices
+        on the wiki page.
+        I use negative indices to indicate that the texture/normal index is unspecified, so if a
+        negative index is encountered, I fix it here.
         */
         int i;
         ObjFace *f = add_faces(obj);
         for(i = 0; i < 3; i++) {
             f->verts[i].vt = -1;
             f->verts[i].vn = -1;
+            int neg = accept('-');
             expect('0');
             f->verts[i].v = atoi(LastWord);
+            if(neg) {
+                f->verts[i].v = obj->nverts - f->verts[i].v;
+                if(f->verts[i].v < 0)
+                    error("negative v index");
+            }
             assert(f->verts[i].v >= 0);/* unsupported at the moment */
             if(accept('/')) {
-                if(accept('0'))
+                neg = accept('-');
+                if(accept('0')) {
                     f->verts[i].vt = atoi(LastWord);
+                    if(neg) {
+                        f->verts[i].vt = obj->ntexs - f->verts[i].vt;
+                        if(f->verts[i].vt < 0)
+                            error("negative vt index");
+                    }
+                }
                 if(accept('/')) {
+                    neg = accept('-');
                     expect('0');
                     f->verts[i].vn = atoi(LastWord);
+                    if(neg) {
+                        f->verts[i].vn = obj->nnorms - f->verts[i].vn;
+                        if(f->verts[i].vn < 0)
+                            error("negative vn index");
+                    }
                 }
             }
         }
