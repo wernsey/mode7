@@ -40,5 +40,5 @@ gdi.o : gdi/gdi.c gdi/gdi.h bmp.h app.h
 .PHONY : clean
 
 clean:
-	-rm -f *.o $(EXECUTABLE) $(EXECUTABLE).exe
+	-rm -f *.o gdi/*.o $(EXECUTABLE) $(EXECUTABLE).exe
 	-rm -f *.log dump.txt

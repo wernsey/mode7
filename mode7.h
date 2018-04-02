@@ -72,6 +72,11 @@ void m7_draw_sprite(Bitmap *dst, double wx, double wy, double wz, Bitmap *src, i
  */
 void m7_draw_tri(Bitmap *bmp, Vector3 tri[3]);
 
+/* Draws a line in 3D space from `p[0]` to `p[1]`.
+ * It takes the Z-buffer into account.
+ */
+void m7_line(Bitmap *bmp, Vector3 p[2]);
+
 /* Finds the angle of an object facing in direction `phi_o`
  * relative to the camera.
  * It is used to choose the appropriate sprite for an object.

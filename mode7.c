@@ -5,6 +5,7 @@ http://www.coranac.com/tonc/text/mode7ex.htm
 */
 #include <stdlib.h>
 #include <math.h>
+#include <float.h>
 #include <assert.h>
 
 #include "bmp.h"
@@ -525,7 +526,6 @@ void m7_draw_tri(Bitmap *bmp, Vector3 tri[3]) {
     Vector3 asp = v3(mode7.L, mode7.T, -mode7.D);
 
     for(i = 0; i < 3; i++) {
-
         Vector3 xp;
         Vector3 r = vsub3(tri[i], mode7.acw);
 
@@ -542,6 +542,97 @@ void m7_draw_tri(Bitmap *bmp, Vector3 tri[3]) {
         proj[i].z = l;
     }
     fill_tri(bmp, proj[0], proj[1], proj[2]);
+}
+
+static void draw_line(Bitmap *b, int x0, int y0, double z0, int x1, int y1, double z1) {
+    int dx = x1 - x0;
+    int dy = y1 - y0;
+    int sx, sy;
+    int err, e2;
+
+    if(dx < 0) dx = -dx;
+    if(dy < 0) dy = -dy;
+
+    if(x0 < x1)
+        sx = 1;
+    else
+        sx = -1;
+    if(y0 < y1)
+        sy = 1;
+    else
+        sy = -1;
+
+    err = dx - dy;
+
+    int x = x0, y = y0, steps = 0;
+
+    /* Run the loop once, without plotting anything so that we
+    can figure out how we'd need to adjust the z value each step.
+    I'm sure there's a better way to do this, but I'm stumped. */
+    for(;; steps++) {
+        if(x == x1 && y == y1) break;
+        e2 = 2 * err;
+        if(e2 > -dy) {
+            err -= dy;
+            x += sx;
+        }
+        if(e2 < dx) {
+            err += dx;
+            y += sy;
+        }
+    }
+    if(!steps) return;
+
+    double dz = (z1 - z0)/steps;
+    unsigned int c = b->color;
+
+    x = x0, y = y0;
+    for(;;) {
+        if(x >= 0 && x < mode7.W && y >= 0 && y < mode7.H){// && z0 >= 0 && z0 < 1.0) {
+            if(ZBUF_GET(x, y) > z0 + DBL_EPSILON) {
+                unsigned int c1 = c;
+                if(mode7.fog_enabled) /* [tonc] section 21.5.2 */
+                    c1 = bm_lerp(c, mode7.fog_color, z0 * FOG_RATIO);
+                ZBUF_SET(x, y, z0);
+                bm_set(b, x + mode7.X, y + mode7.Y, c1);
+            }
+        }
+        if(x == x1 && y == y1) break;
+        e2 = 2 * err;
+        if(e2 > -dy) {
+            err -= dy;
+            x += sx;
+        }
+        if(e2 < dx) {
+            err += dx;
+            y += sy;
+        }
+        z0 += dz;
+    }
+}
+
+void m7_line(Bitmap *bmp, Vector3 p[2]) {
+    Vector3 proj[2];
+    int i;
+    Vector3 asp = v3(mode7.L, mode7.T, -mode7.D);
+
+    for(i = 0; i < 2; i++) {
+        Vector3 xp;
+        Vector3 r = vsub3(p[i], mode7.acw);
+
+        double zc = vdot3(mode7.C.w,r);
+        double l = -zc/mode7.D;
+        double x_p = vdot3(mode7.C.u,r)/l;
+        double y_p = vdot3(mode7.C.v,r)/l;
+
+        if(-zc < mode7.N || -zc > mode7.F) return; /* near/far clipping plane */
+
+        xp = v3(x_p, y_p, -mode7.D);
+        proj[i] = vsub3(xp, asp);
+        proj[i].y = -proj[i].y;
+        proj[i].z = l;
+    }
+    draw_line(bmp, proj[0].x, proj[0].y, proj[0].z, proj[1].x, proj[1].y, proj[1].z);
 }
 
 void m7_lookat(double x, double y, double z) {

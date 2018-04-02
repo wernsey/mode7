@@ -33,14 +33,14 @@ struct {
 int npoints = (sizeof points)/sizeof(points[0]);
 
 static Vector3 triangle[] = {
-    {100+0, 0, 0},
-    {100+-20, 20, 20},
-    {100+20, 20, -20},
+    {160+0, 0, 160+0},
+    {160+-20, 20, 160+20},
+    {160+20, 20, 160+-20},
 };
 static Vector3 triangle2[] = {
-    {100+0, 0, 0},
-    {100-20, 40, -20},
-    {100+20, 20, 20},
+    {160+ +0, 0, 160+0},
+    {160+-20, 40, 160+-20},
+    {160+ +20, 20, 160+20},
 };
 
 void draw_props() {
@@ -170,6 +170,14 @@ int render(double elapsed) {
     bm_set_color(screen, bm_atoi("blue"));
     m7_draw_tri(screen, triangle2);
 
+    Vector3 p[] = {{130,0,120},{170,20,180}};
+    bm_set_color(screen, 0);
+    m7_line(screen, p);
+
+    Vector3 q[] = {{50,10,50},{300,30,50}};
+    bm_set_color(screen, 0);
+    m7_line(screen, q);
+
     if(is_animating) {
         spr_frame += elapsed;
         switch(((int)(spr_frame * 10)) % 4) {
@@ -178,7 +186,7 @@ int render(double elapsed) {
         case 2: col = 2; break;
         case 3: col = 1; break;
         }
-    } 
+    }
 
     rel_angle += M_PI / 4;
     if(rel_angle >= 2.0 * M_PI) rel_angle -= 2.0 * M_PI;
@@ -188,16 +196,16 @@ int render(double elapsed) {
         case 2: row = 2; break;
         case 3: row = 3; break;
     }
-    
+
     m7_draw_sprite(screen, spr_x, 0, spr_z, guy, col * 24, row * 32, 24, 32);
 
     m7_get_camera_pos(&x, &y, &z);
     m7_get_camera_ang(&phi, &theta);
-    
+
 #if 0
-	bm_set_color(screen, bm_atoi("white"));
+    bm_set_color(screen, bm_atoi("white"));
     bm_printf(screen, 5, screen->h - 8, "rel: %.2f (%.2f): %d => %d", rel_angle*180/M_PI, spr_angle*180/M_PI, (int)(4.0 * rel_angle / (2.0 * M_PI)), row);
-	bm_printf(screen, 10, 20, "p:%.f t:%.f", phi*180/M_PI, theta*180/M_PI);
+    bm_printf(screen, 10, 20, "p:%.f t:%.f", phi*180/M_PI, theta*180/M_PI);
     bm_printf(screen, 10, 30, "x:%.f y:%.f z:%.f", x, y, z);
 #endif
 
