@@ -3,7 +3,7 @@ CC=gcc
 CFLAGS=-c -Wall -Isdl -I.
 LDFLAGS=-lm
 
-SOURCES=sdl/pocadv.c bmp.c render.c mode7.c
+SOURCES=sdl/pocadv.c bmp.c render.c mode7.c obj.c
 OBJECTS=$(SOURCES:.c=.o)
 
 # Detect operating system:
@@ -40,10 +40,11 @@ $(EXECUTABLE): $(OBJECTS)
 	$(CC) $(CFLAGS) $< -o $@
 
 # Add header dependencies here
-render.o : render.c sdl/pocadv.h mode7.h
-mode7.o : mode7.c bmp.h mode7.h
+render.o : render.c sdl/pocadv.h mode7.h obj.h
+mode7.o : mode7.c bmp.h mode7.h obj.h
 bmp.o : bmp.c bmp.h
 pocadv.o : pocadv.c sdl/pocadv.h bmp.h app.h
+obj.o : obj.c obj.h
 
 .PHONY : clean
 

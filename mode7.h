@@ -1,3 +1,8 @@
+#ifndef MODE7_H
+#define MODE7_H
+
+#include "obj.h"
+
 /* These are defined here, because it is unlikely they will require changing */
 /* value for D, the draw plane distance */
 #define MODE7_D 256
@@ -13,6 +18,13 @@
 typedef struct vector3 {
     double x,y,z;
 } Vector3;
+
+/* Some vector routines */
+Vector3 v3(double x, double y, double z);
+Vector3 v3_sub(Vector3 v1, Vector3 v2);
+double v3_dot(Vector3 v1, Vector3 v2);
+Vector3 v3_cross(Vector3 v1, Vector3 v2);
+Vector3 v3_normalize(Vector3 v);
 
 /* Initializes the module. x,y,w,h defines the viewport
 in which the mode-7 stuff will be drawn */
@@ -72,6 +84,11 @@ void m7_draw_sprite(Bitmap *dst, double wx, double wy, double wz, Bitmap *src, i
  */
 void m7_draw_tri(Bitmap *bmp, Vector3 tri[3]);
 
+/* 
+ *
+ */
+void m7_draw_obj(Bitmap *dst, ObjMesh *obj, Vector3 pos, double yrot, unsigned int color);
+
 /* Draws a line in 3D space from `p[0]` to `p[1]`.
  * It takes the Z-buffer into account.
  */
@@ -82,3 +99,5 @@ void m7_line(Bitmap *bmp, Vector3 p[2]);
  * It is used to choose the appropriate sprite for an object.
  */
 double m7_rel_angle(double phi_o);
+
+#endif  /* MODE7_H */

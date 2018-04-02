@@ -1,12 +1,15 @@
 #include <stdlib.h>
 #include <math.h>
+#include <assert.h>
 
 #if defined(SDL2) || defined(SDL) || defined(__EMSCRIPTEN__)
 #  include "pocadv.h"
 #else
 #  include "gdi.h"
 #endif
+
 #include "mode7.h"
+
 
 static Bitmap *tiles = NULL;
 static Bitmap *props = NULL;
@@ -22,31 +25,22 @@ static int is_animating = 0;
 static double fwd_speed = 100.0;
 static double rot_speed = 180.0;
 
-struct {
-    double x, y, z;
-} points[] = {
+ObjMesh *obj = NULL;
+Vector3 obj_pos = {160, 0, 160};
+double obj_rot = 0.0;
+
+Vector3 prop_positions[] = {
     {0, 0, 320},
     {0, 0, 0},
     {320, 0, 0},
     {320, 0, 320},
 };
-int npoints = (sizeof points)/sizeof(points[0]);
-
-static Vector3 triangle[] = {
-    {160+0, 0, 160+0},
-    {160+-20, 20, 160+20},
-    {160+20, 20, 160+-20},
-};
-static Vector3 triangle2[] = {
-    {160+ +0, 0, 160+0},
-    {160+-20, 40, 160+-20},
-    {160+ +20, 20, 160+20},
-};
+int npoints = (sizeof prop_positions)/sizeof(prop_positions[0]);
 
 void draw_props() {
     int i;
     for(i = 0; i < npoints; i++) {
-        m7_draw_sprite(screen, points[i].x, points[i].y, points[i].z, props, (i & 0x01)?40:0, 0, 40, 60);
+        m7_draw_sprite(screen, prop_positions[i].x, prop_positions[i].y, prop_positions[i].z, props, (i & 0x01)?40:0, 0, 40, 60);
     }
 }
 
@@ -80,6 +74,8 @@ void update_all(double elapsed) {
 
     m7_get_camera_pos(&x, &y, &z);
     m7_get_camera_ang(&phi, &theta);
+
+    //obj_rot += elapsed * (rot_speed/4.0) * M_PI / 180;
 
     /* Press up and down to move foraward/backward */
     if(keys[KCODE(UP)]) {
@@ -165,18 +161,23 @@ int render(double elapsed) {
 
     draw_props();
 
-    bm_set_color(screen, bm_atoi("red"));
-    m7_draw_tri(screen, triangle);
-    bm_set_color(screen, bm_atoi("blue"));
-    m7_draw_tri(screen, triangle2);
+    m7_draw_obj(screen, obj, obj_pos, obj_rot, bm_atoi("#51687F"));
 
-    Vector3 p[] = {{130,0,120},{170,20,180}};
+    Vector3 p[2];
     bm_set_color(screen, 0);
+
+    p[0] = v3(140, 0, 140);
+    p[1] = v3(140, 20, 140);
     m7_line(screen, p);
-
-    Vector3 q[] = {{50,10,50},{300,30,50}};
-    bm_set_color(screen, 0);
-    m7_line(screen, q);
+    p[0] = v3(180, 0, 140);
+    p[1] = v3(180, 20, 140);
+    m7_line(screen, p);
+    p[0] = v3(180, 0, 180);
+    p[1] = v3(180, 20, 180);
+    m7_line(screen, p);
+    p[0] = v3(140, 0, 180);
+    p[1] = v3(140, 20, 180);
+    m7_line(screen, p);
 
     if(is_animating) {
         spr_frame += elapsed;
@@ -246,6 +247,10 @@ void init_game(int argc, char *argv[]) {
         exit_error("Unable to load props");
     }
     bm_set_color(props, bm_atoi("#008A76"));
+
+    obj = obj_load("res/pyramid.obj");
+    if(!obj)
+        exit_error("Unable to load OBJ");
 }
 
 void deinit_game() {
@@ -253,6 +258,8 @@ void deinit_game() {
     bm_free(props);
     bm_free(guy);
     bm_free(sky);
+
+    obj_free(obj);
 
     m7_deinit();
 }

@@ -9,6 +9,7 @@ http://www.coranac.com/tonc/text/mode7ex.htm
 #include <assert.h>
 
 #include "bmp.h"
+#include "obj.h"
 #include "mode7.h"
 
 #define MIN(a,b) (((a)<(b))?(a):(b))
@@ -25,18 +26,27 @@ typedef struct mat3 {
     Vector3 u, v, w;
 } Mat3;
 
-static Vector3 v3(double x, double y, double z) {
+Vector3 v3(double x, double y, double z) {
     Vector3 v;
     v.x = x; v.y = y; v.z = z;
     return v;
 }
 
-static Vector3 vsub3(Vector3 v1, Vector3 v2) {
+Vector3 v3_sub(Vector3 v1, Vector3 v2) {
     return v3(v1.x - v2.x, v1.y - v2.y, v1.z - v2.z);
 }
 
-static double vdot3(Vector3 v1, Vector3 v2) {
+double v3_dot(Vector3 v1, Vector3 v2) {
     return v1.x * v2.x + v1.y * v2.y + v1.z * v2.z;
+}
+
+Vector3 v3_cross(Vector3 u, Vector3 v) {
+    return v3(u.y*v.z - u.z*v.y, u.z*v.x - u.x*v.z, u.x*v.y - u.y*v.x);
+}
+
+Vector3 v3_normalize(Vector3 v) {
+	double _len = 1.0/sqrt(v.x*v.x + v.y*v.y + v.z*v.z);
+	return v3(v.x*_len, v.y*_len, v.z*_len);
 }
 
 /*
@@ -388,16 +398,16 @@ void m7_draw_sprite(Bitmap *dst, double wx, double wy, double wz, Bitmap *src, i
     xw = v3(wx, wy, wz);
     asp = v3(mode7.L, mode7.T, -mode7.D);
 
-    r = vsub3(xw, mode7.acw);
+    r = v3_sub(xw, mode7.acw);
 
-    zc = vdot3(mode7.C.w, r);
+    zc = v3_dot(mode7.C.w, r);
     l = -zc/mode7.D;
 
-    xp.x = vdot3(mode7.C.u, r)/l;
-    xp.y = vdot3(mode7.C.v, r)/l;
+    xp.x = v3_dot(mode7.C.u, r)/l;
+    xp.y = v3_dot(mode7.C.v, r)/l;
     xp.z = -mode7.D;
 
-    xs = vsub3(xp, asp);
+    xs = v3_sub(xp, asp);
     xs.y = -xs.y;
 
     if(-zc < mode7.N || -zc > mode7.F) return; /* near/far clipping plane */
@@ -527,21 +537,54 @@ void m7_draw_tri(Bitmap *bmp, Vector3 tri[3]) {
 
     for(i = 0; i < 3; i++) {
         Vector3 xp;
-        Vector3 r = vsub3(tri[i], mode7.acw);
+        Vector3 r = v3_sub(tri[i], mode7.acw);
 
-        double zc = vdot3(mode7.C.w,r);
+        double zc = v3_dot(mode7.C.w,r);
         double l = -zc/mode7.D;
-        double x_p = vdot3(mode7.C.u,r)/l;
-        double y_p = vdot3(mode7.C.v,r)/l;
+        double x_p = v3_dot(mode7.C.u,r)/l;
+        double y_p = v3_dot(mode7.C.v,r)/l;
 
         if(-zc < mode7.N || -zc > mode7.F) return; /* near/far clipping plane */
 
         xp = v3(x_p, y_p, -mode7.D);
-        proj[i] = vsub3(xp, asp);
+        proj[i] = v3_sub(xp, asp);
         proj[i].y = -proj[i].y;
         proj[i].z = l;
     }
     fill_tri(bmp, proj[0], proj[1], proj[2]);
+}
+
+void m7_draw_obj(Bitmap *dst, ObjMesh *obj, Vector3 pos, double yrot, unsigned int color) {
+    int i, j;
+    if(!obj)
+        return;
+
+    Vector3 light_dir = v3_normalize(v3(3.0, -5.0, -1.0));
+
+    double sinAngle = sin(yrot);
+    double cosAngle = cos(yrot);
+
+    for(i = 0; i < obj->nfaces; i++) {
+        ObjFace *f = obj->faces + i;
+        Vector3 tri[3];
+
+        for(j = 0; j < 3; j++) {
+            assert(f->verts[j].v < obj->nverts);
+            ObjVert *v = obj->verts + f->verts[j].v;
+            tri[j].x = -cosAngle * v->x + sinAngle * v->z + pos.x;
+            tri[j].y = v->y + pos.y;
+            tri[j].z = -sinAngle * v->x - cosAngle * v->z + pos.z;
+        }
+        Vector3 n = v3_normalize(v3_cross(v3_sub(tri[2],tri[0]), v3_sub(tri[1],tri[0])));
+
+        double intensity = v3_dot(n, light_dir);
+        if(intensity < 0) intensity = 0;
+        intensity = intensity * 0.4 + 0.6;
+        unsigned int light = bm_lerp(0, color, intensity);
+
+        bm_set_color(dst, light);
+        m7_draw_tri(dst, tri);
+    }
 }
 
 static void draw_line(Bitmap *b, int x0, int y0, double z0, int x1, int y1, double z1) {
@@ -618,17 +661,17 @@ void m7_line(Bitmap *bmp, Vector3 p[2]) {
 
     for(i = 0; i < 2; i++) {
         Vector3 xp;
-        Vector3 r = vsub3(p[i], mode7.acw);
+        Vector3 r = v3_sub(p[i], mode7.acw);
 
-        double zc = vdot3(mode7.C.w,r);
+        double zc = v3_dot(mode7.C.w,r);
         double l = -zc/mode7.D;
-        double x_p = vdot3(mode7.C.u,r)/l;
-        double y_p = vdot3(mode7.C.v,r)/l;
+        double x_p = v3_dot(mode7.C.u,r)/l;
+        double y_p = v3_dot(mode7.C.v,r)/l;
 
         if(-zc < mode7.N || -zc > mode7.F) return; /* near/far clipping plane */
 
         xp = v3(x_p, y_p, -mode7.D);
-        proj[i] = vsub3(xp, asp);
+        proj[i] = v3_sub(xp, asp);
         proj[i].y = -proj[i].y;
         proj[i].z = l;
     }
