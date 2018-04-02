@@ -5,7 +5,7 @@ CFLAGS= -c -Wall -Igdi -I.
 LDFLAGS= -mwindows
 
 # Add your source files here:
-SOURCES=gdi/gdi.c bmp.c render.c mode7.c
+SOURCES=gdi/gdi.c bmp.c render.c mode7.c obj.c
 
 OBJECTS=$(SOURCES:.c=.o)
 EXECUTABLE=mode7.exe
@@ -32,10 +32,11 @@ $(EXECUTABLE): $(OBJECTS)
 	$(CC) $(CFLAGS) $< -o $@
 
 # Add header dependencies here
-render.o : render.c gdi/gdi.h mode7.h
-mode7.o : mode7.c bmp.h mode7.h
+render.o : render.c gdi/gdi.h mode7.h obj.h
+mode7.o : mode7.c bmp.h mode7.h obj.h
 bmp.o : bmp.c bmp.h
 gdi.o : gdi/gdi.c gdi/gdi.h bmp.h app.h
+obj.o : obj.c obj.h
 
 .PHONY : clean
 
