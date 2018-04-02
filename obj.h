@@ -7,16 +7,18 @@
  *
  * Reads [Wavefront .OBJ][wiki] 3D models.
  *
+ * ## Notes:
+ *
+ *  * *TODO:* Materials: `mtllib`, `usemtl` etc.
+ *  * Faces containing more than 3 vertices are converted
+ *    to triangle fans internally.
+ *  * Faces can't belong to multiple groups.
+ *
  * ## Links:
  *
  *  * [Wavefront .obj file][wiki]
  *  * [Object Files (.obj)][bourke]
  *  * <https://www.cs.cmu.edu/~mbz/personal/graphics/obj.html>
- *
- * ## TODO:
- *
- *  * Groups with the `g` command
- *  * Materials: `mtllib`, `usemtl` etc.
  *
  * [wiki]: https://en.wikipedia.org/wiki/Wavefront_.obj_file
  * [bourke]: http://paulbourke.net/dataformats/obj/
@@ -35,12 +37,19 @@ typedef struct {
 } ObjUVW;
 
 typedef struct {
-    /* Technically, OBJ supports more
-    than 3 vertices per face, but I don't. */
-    struct {
-        int v, vt, vn;
-    } verts[3];
+	int v, vt, vn;
+} ObjFaceVert;
+
+typedef struct {
+    /* OBJ supports more than 3 vertices per face;
+    I cater for that by just adding more triangles as a triangle strip.*/
+    ObjFaceVert verts[3];
+	int g, s;
 } ObjFace;
+
+typedef struct {
+	char *name;
+} ObjGroup;
 
 typedef struct ObjMesh {
 
@@ -59,14 +68,25 @@ typedef struct ObjMesh {
     unsigned int nfaces, afaces;
     ObjFace *faces; /* Faces */
 
+    unsigned int ngroups, agroups;
+    ObjGroup *groups; /* Groups */
+
     double xmin, xmax;
     double ymin, ymax;
     double zmin, zmax;
-
 } ObjMesh;
 
+ObjMesh *obj_create();
 ObjMesh *obj_load(const char *fname);
 void obj_free(ObjMesh *obj);
 void obj_out(ObjMesh *obj, const char *fname);
+
+/* Seek VEC_ADD_FUNCTION for the definition of these: */
+ObjVert *obj_add_vert(ObjMesh *obj);
+ObjNorm *obj_add_norm(ObjMesh *obj);
+ObjUVW *obj_add_tex(ObjMesh *obj);
+ObjUVW *obj_add_pspace(ObjMesh *obj);
+ObjFace *obj_add_face(ObjMesh *obj);
+ObjGroup *obj_add_group(ObjMesh *obj);
 
 #endif

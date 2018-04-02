@@ -51,3 +51,7 @@ obj.o : obj.c obj.h
 clean:
 	-rm -f sdl/*.o *.o $(EXECUTABLE) $(EXECUTABLE).exe
 	-rm -f *.log dump.txt
+
+DISTFILE=mode7.zip
+dist: clean
+	zip -r $(DISTFILE) *

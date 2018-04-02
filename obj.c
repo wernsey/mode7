@@ -17,9 +17,10 @@ typedef struct {
     char *text;
     char *lex;
     int line;
+    int s; /* smoothing group */
 } OBJ_Parser;
 
-enum { V = 128, VT, VN, VP, F, L, ID, NUM } Types;
+enum { V = 128, VT, VN, VP, F, L, G, S, MTLLIB, USEMTL, ID, NUM } Types;
 
 static void nextsym(OBJ_Parser *p);
 
@@ -55,6 +56,7 @@ static void init(OBJ_Parser *p, char *text) {
     p->text = text;
     p->lex = text;
     p->line = 1;
+    p->s = 0;
     nextsym(p);
 }
 
@@ -84,7 +86,7 @@ space:
             p->lex++;
             if(l >= sizeof p->word - 1)
                 error(p, "identifier too long");
-        } while(isalnum(p->lex[0]));
+        } while(isgraph(p->lex[0]));
         p->word[l] = '\0';
         if(!strcmp(p->word, "v"))  SYMBOL(V);
         if(!strcmp(p->word, "vt")) SYMBOL(VT);
@@ -92,7 +94,11 @@ space:
         if(!strcmp(p->word, "f"))  SYMBOL(F);
         if(!strcmp(p->word, "l"))  SYMBOL(L);
         if(!strcmp(p->word, "vp"))  SYMBOL(VP);
-        error(p, "unsupported type '%s'", p->word);
+        if(!strcmp(p->word, "g"))  SYMBOL(G);
+        if(!strcmp(p->word, "s"))  SYMBOL(S);
+        if(!strcmp(p->word, "usemtl"))  SYMBOL(USEMTL);
+        if(!strcmp(p->word, "mtllib"))  SYMBOL(MTLLIB);
+        SYMBOL(ID);
     } else if(isdigit(p->lex[0])) {
         do {
             p->word[l++] = p->lex[0];
@@ -107,20 +113,31 @@ space:
     p->word[0] = p->sym; p->word[1] = '\0';
 }
 
-#define VEC_ADD_FUNCTION(NAME, TYPE)                                          \
-static TYPE *add_ ## NAME(ObjMesh *obj) {                                     \
-    if(obj->n ## NAME == obj->a ## NAME) {                                    \
-        obj->a ## NAME += obj->a ## NAME >> 1;                                \
-        obj->NAME = realloc(obj->NAME, obj->a ## NAME * sizeof *obj->NAME);   \
-    }                                                                         \
-    return &obj->NAME[obj->n ## NAME++];                                      \
+#define VEC_ADD_FUNCTION(NAME, TYPE)                                              \
+TYPE *obj_add_ ## NAME(ObjMesh *obj) {                                            \
+    if(obj->n ## NAME ## s == obj->a ## NAME ## s) {                              \
+        obj->a ## NAME ## s += obj->a ## NAME ## s >> 1;                          \
+        obj->NAME ## s = realloc(obj->NAME ## s,                                  \
+                            obj->a ## NAME ## s * sizeof *obj->NAME ## s);        \
+    }                                                                             \
+    return &obj->NAME ## s[obj->n ## NAME ## s++];                                \
 }
 
-VEC_ADD_FUNCTION(verts, ObjVert)
-VEC_ADD_FUNCTION(norms, ObjNorm)
-VEC_ADD_FUNCTION(texs, ObjUVW)
-VEC_ADD_FUNCTION(pspaces, ObjUVW)
-VEC_ADD_FUNCTION(faces, ObjFace)
+VEC_ADD_FUNCTION(vert, ObjVert)
+VEC_ADD_FUNCTION(norm, ObjNorm)
+VEC_ADD_FUNCTION(tex, ObjUVW)
+VEC_ADD_FUNCTION(pspace, ObjUVW)
+/*VEC_ADD_FUNCTION(face, ObjFace)*/
+ObjFace *obj_add_face(ObjMesh *obj) {
+    if(obj->nfaces == obj->afaces) {
+        obj->afaces += obj->afaces >> 1; obj->faces = realloc(obj->faces, obj->afaces * sizeof *obj->faces);
+    }
+    ObjFace *f = &obj->faces[obj->nfaces++];
+    f->g = obj->ngroups - 1;
+    f->s = 0;
+    return f;
+}
+VEC_ADD_FUNCTION(group, ObjGroup)
 
 static double read_float(OBJ_Parser *p) {
     double sign = accept(p,'-') ? -1.0 : 1.0;
@@ -128,9 +145,48 @@ static double read_float(OBJ_Parser *p) {
     return sign * atof(p->lastword);
 }
 
+static ObjFaceVert *parse_face_vert(OBJ_Parser *p, ObjMesh *obj, ObjFaceVert *fv) {
+    fv->vt = -1;
+    fv->vn = -1;
+    int neg = accept(p, '-');
+    expect(p, NUM);
+    fv->v = atoi(p->lastword);
+    if(neg) {
+        fv->v = obj->nverts - fv->v;
+        if(fv->v < 0)
+            error(p, "negative v index");
+    } else
+        fv->v--;
+    assert(fv->v >= 0);/* unsupported at the moment */
+    if(accept(p, '/')) {
+        neg = accept(p, '-');
+        if(accept(p, NUM)) {
+            fv->vt = atoi(p->lastword);
+            if(neg) {
+                fv->vt = obj->ntexs - fv->vt;
+                if(fv->vt < 0)
+                    error(p, "negative vt index");
+            } else
+                fv->vt--;
+        }
+        if(accept(p, '/')) {
+            neg = accept(p, '-');
+            expect(p, NUM);
+            fv->vn = atoi(p->lastword);
+            if(neg) {
+                fv->vn = obj->nnorms - fv->vn;
+                if(fv->vn < 0)
+                    error(p, "negative vn index");
+            } else
+                fv->vn--;
+        }
+    }
+    return fv;
+}
+
 static void parse_element(OBJ_Parser *p, ObjMesh *obj) {
     if(accept(p, V)) {
-        ObjVert *v = add_verts(obj);
+        ObjVert *v = obj_add_vert(obj);
         v->x = read_float(p);
         v->y = read_float(p);
         v->z = read_float(p);
@@ -145,7 +201,7 @@ static void parse_element(OBJ_Parser *p, ObjMesh *obj) {
         if(v->z < obj->zmin) obj->zmin = v->z;
         if(v->z > obj->zmax) obj->zmax = v->z;
     } else if(accept(p, VN)) {
-        ObjNorm *vn = add_norms(obj);
+        ObjNorm *vn = obj_add_norm(obj);
         vn->x = read_float(p);
         vn->y = read_float(p);
         vn->z = read_float(p);
@@ -155,7 +211,7 @@ static void parse_element(OBJ_Parser *p, ObjMesh *obj) {
         vn->y *= _len;
         vn->z *= _len;
     } else if(accept(p, VT)) {
-        ObjUVW *vt = add_texs(obj);
+        ObjUVW *vt = obj_add_tex(obj);
         vt->u = read_float(p);
         vt->v = read_float(p);
         if(p->sym == NUM) {
@@ -163,60 +219,56 @@ static void parse_element(OBJ_Parser *p, ObjMesh *obj) {
         } else
             vt->w = 0.0;
     } else if(accept(p, VP)) {
-        ObjUVW *vp = add_pspaces(obj);
+        ObjUVW *vp = obj_add_pspace(obj);
         vp->u = read_float(p);
         vp->v = read_float(p);
         vp->w = read_float(p);
+    } else if(accept(p, G)) {
+        expect(p, ID);
+        ObjGroup *g = obj_add_group(obj);
+        g->name = strdup(p->lastword);
+    } else if(accept(p, S)) {
+        if(accept(p, ID)) {
+            if(strcmp(p->lastword, "off"))
+                error(p, "number or 'off' expected");
+            p->s = 0;
+        } else {
+            expect(p, NUM);
+            p->s = atoi(p->lastword);
+        }
+    } else if(accept(p, MTLLIB)) {
+        expect(p, ID);
+        /* TODO */
+    } else if(accept(p, USEMTL)) {
+        expect(p, ID);
+        /* TODO */
     } else if(accept(p, L)) {
         while(accept(p, NUM)) {
-            // TODO: something something atoi(p->lastword)
+            /* TODO: something something atoi(p->lastword) */
         }
     } else if(accept(p, F)) {
         /* Wikipedia says that negative indices might be present. See #Relative_and_absolute_indices
         on the wiki page.
-        I use negative indices to indicate that the texture/normal index is unspecified, so if a
-        negative index is encountered, I fix it here. */
+        I use negative indices to indicate that the texture/normal index
+        is unspecified, so if a negative index is encountered, I fix it here. */
         int i;
-        ObjFace *f = add_faces(obj);
+        ObjFace *f = obj_add_face(obj);
 
-        /* FIXME: If more than 3 vertices are present, it is a triangle strip...
-        I can cater for that by just adding more triangles.
-        */
-
+        ObjFaceVert *first, *last;
         for(i = 0; i < 3; i++) {
-            f->verts[i].vt = -1;
-            f->verts[i].vn = -1;
-            int neg = accept(p, '-');
-            expect(p, NUM);
-            f->verts[i].v = atoi(p->lastword);
-            if(neg) {
-                f->verts[i].v = obj->nverts - f->verts[i].v;
-                if(f->verts[i].v < 0)
-                    error(p, "negative v index");
-            }
-            assert(f->verts[i].v >= 0);/* unsupported at the moment */
-            if(accept(p, '/')) {
-                neg = accept(p, '-');
-                if(accept(p, NUM)) {
-                    f->verts[i].vt = atoi(p->lastword);
-                    if(neg) {
-                        f->verts[i].vt = obj->ntexs - f->verts[i].vt;
-                        if(f->verts[i].vt < 0)
-                            error(p, "negative vt index");
-                    }
-                }
-                if(accept(p, '/')) {
-                    neg = accept(p, '-');
-                    expect(p, NUM);
-                    f->verts[i].vn = atoi(p->lastword);
-                    if(neg) {
-                        f->verts[i].vn = obj->nnorms - f->verts[i].vn;
-                        if(f->verts[i].vn < 0)
-                            error(p, "negative vn index");
-                    }
-                }
-            }
+            last = parse_face_vert(p, obj, &f->verts[i]);
         }
+        first = &f->verts[0];
+
+        /* If more than 3 vertices are present, it is a triangle fan...
+        https://stackoverflow.com/a/23724231/115589 */
+        while(p->sym != '\0' && p->sym != '\n') {
+            f = obj_add_face(obj);
+            f->verts[0] = *first;
+            f->verts[1] = *last;
+            last = parse_face_vert(p, obj, &f->verts[2]);
+        }
+
     } else {
         error(p, "Unexpected %d", p->sym);
     }
@@ -260,13 +312,7 @@ static char *_obj_readf(const char *fname) {
     obj->NAME = calloc(obj->a ## NAME, sizeof *obj->NAME); \
     obj->n ## NAME = 0;
 
-ObjMesh *obj_load(const char *fname) {
-    OBJ_Parser parser;
-    char *text = _obj_readf(fname);
-    if(!text)
-        return NULL;
-    init(&parser, text);
-
+ObjMesh *obj_create() {
     ObjMesh *obj = malloc(sizeof *obj);
     memset(obj, 0, sizeof *obj);
 
@@ -275,10 +321,22 @@ ObjMesh *obj_load(const char *fname) {
     INIT(texs)
     INIT(pspaces)
     INIT(faces)
+    INIT(groups)
 
     obj->xmin = DBL_MAX; obj->xmax = DBL_MIN;
     obj->ymin = DBL_MAX; obj->ymax = DBL_MIN;
     obj->zmin = DBL_MAX; obj->zmax = DBL_MIN;
+    return obj;
+}
+
+ObjMesh *obj_load(const char *fname) {
+    OBJ_Parser parser;
+    char *text = _obj_readf(fname);
+    if(!text)
+        return NULL;
+    init(&parser, text);
+
+    ObjMesh *obj = obj_create();
 
     parse(&parser, obj);
 
@@ -287,16 +345,20 @@ ObjMesh *obj_load(const char *fname) {
 }
 
 void obj_free(ObjMesh *obj) {
+    int i;
     free(obj->verts);
     free(obj->norms);
     free(obj->texs);
     free(obj->pspaces);
     free(obj->faces);
+    for(i = 0; i < obj->ngroups; i++)
+        free(obj->groups[i].name);
+    free(obj->groups);
     free(obj);
 }
 
 static void _obj_out(ObjMesh *obj, FILE *o) {
-    int i;
+    int i, g = -1, s = 0;
     fprintf(o,"# x extents: %g %g  (%g)\n", obj->xmin, obj->xmax, obj->xmax - obj->xmin);
     fprintf(o,"# y extents: %g %g  (%g)\n", obj->ymin, obj->ymax, obj->ymax - obj->ymin);
     fprintf(o,"# z extents: %g %g  (%g)\n", obj->zmin, obj->zmax, obj->zmax - obj->zmin);
@@ -320,23 +382,31 @@ static void _obj_out(ObjMesh *obj, FILE *o) {
         ObjUVW *vp = obj->pspaces + i;
         fprintf(o,"vp %g %g %g\n", vp->u, vp->v, vp->w);
     }
-    fprintf(o,"# %d faces\n", obj->nfaces);
+    fprintf(o,"# %d faces; %d groups\n", obj->nfaces, obj->ngroups);
     for(i = 0; i < obj->nfaces; i++) {
         int j;
         ObjFace *f = obj->faces + i;
+        if(f->g != g) {
+            g = f->g;
+            fprintf(o, "g %s\n", obj->groups[g].name);
+        }
+        if(f->s != s) {
+            s = f->s;
+            fprintf(o, "s %d\n", s);
+        }
         fprintf(o,"f ");
         for(j = 0; j < 3; j++) {
             if(f->verts[j].vt >= 0) {
                 if(f->verts[j].vn >= 0) {
-                    fprintf(o,"%d/%d/%d ", f->verts[j].v, f->verts[j].vt, f->verts[j].vn);
+                    fprintf(o,"%d/%d/%d ", f->verts[j].v + 1, f->verts[j].vt + 1, f->verts[j].vn + 1);
                 } else {
-                    fprintf(o,"%d/%d ", f->verts[j].v, f->verts[j].vt);
+                    fprintf(o,"%d/%d ", f->verts[j].v + 1, f->verts[j].vt + 1);
                 }
             } else {
                 if(f->verts[j].vn >= 0) {
-                    fprintf(o,"%d//%d ", f->verts[j].v, f->verts[j].vn);
+                    fprintf(o,"%d//%d ", f->verts[j].v + 1, f->verts[j].vn + 1);
                 } else {
-                    fprintf(o,"%d ", f->verts[j].v);
+                    fprintf(o,"%d ", f->verts[j].v + 1);
                 }
             }
         }
@@ -353,6 +423,7 @@ void obj_out(ObjMesh *obj, const char *fname) {
 }
 
 #ifdef TEST
+/* gcc -g -Wall -DTEST obj.c */
 int main(int argc, char *argv[]) {
     if(argc < 2) return 0;
 
