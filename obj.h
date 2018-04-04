@@ -51,6 +51,11 @@ typedef struct {
 	char *name;
 } ObjGroup;
 
+typedef struct {
+	unsigned int n, a;
+	int *idx;
+} ObjLine;
+
 typedef struct ObjMesh {
 
     unsigned int nverts, averts;
@@ -71,6 +76,9 @@ typedef struct ObjMesh {
     unsigned int ngroups, agroups;
     ObjGroup *groups; /* Groups */
 
+    unsigned int nlines, alines;
+    ObjLine *lines; /* Lines */
+
     double xmin, xmax;
     double ymin, ymax;
     double zmin, zmax;
@@ -88,5 +96,7 @@ ObjUVW *obj_add_tex(ObjMesh *obj);
 ObjUVW *obj_add_pspace(ObjMesh *obj);
 ObjFace *obj_add_face(ObjMesh *obj);
 ObjGroup *obj_add_group(ObjMesh *obj);
+ObjLine *obj_add_line(ObjMesh *obj);
+void obj_line_add_vtx(ObjLine *l, int i);
 
 #endif

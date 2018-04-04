@@ -45,8 +45,8 @@ Vector3 v3_cross(Vector3 u, Vector3 v) {
 }
 
 Vector3 v3_normalize(Vector3 v) {
-	double _len = 1.0/sqrt(v.x*v.x + v.y*v.y + v.z*v.z);
-	return v3(v.x*_len, v.y*_len, v.z*_len);
+    double _len = 1.0/sqrt(v.x*v.x + v.y*v.y + v.z*v.z);
+    return v3(v.x*_len, v.y*_len, v.z*_len);
 }
 
 /*
@@ -585,6 +585,26 @@ void m7_draw_obj(Bitmap *dst, ObjMesh *obj, Vector3 pos, double yrot, unsigned i
         bm_set_color(dst, light);
         m7_draw_tri(dst, tri);
     }
+
+    bm_set_color(dst, 0);
+    for(i = 0; i < obj->nlines; i++) {
+        Vector3 p[2];
+        int j;
+        ObjLine *l = &obj->lines[i];
+        ObjVert *v = obj->verts + l->idx[0];
+        p[1].x = -cosAngle * v->x + sinAngle * v->z + pos.x;
+        p[1].y = v->y + pos.y;
+        p[1].z = -sinAngle * v->x - cosAngle * v->z + pos.z;
+        for(j = 1; j < l->n; j++) {
+            p[0] = p[1];
+            v = obj->verts + l->idx[j];
+            p[1].x = -cosAngle * v->x + sinAngle * v->z + pos.x;
+            p[1].y = v->y + pos.y;
+            p[1].z = -sinAngle * v->x - cosAngle * v->z + pos.z;
+            m7_line(dst, p);
+        }
+    }
+
 }
 
 static void draw_line(Bitmap *b, int x0, int y0, double z0, int x1, int y1, double z1) {

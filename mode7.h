@@ -84,10 +84,12 @@ void m7_draw_sprite(Bitmap *dst, double wx, double wy, double wz, Bitmap *src, i
  */
 void m7_draw_tri(Bitmap *bmp, Vector3 tri[3]);
 
-/* 
- *
+#ifdef OBJ_H
+/* Draws a OBJ mesh `obj` at position `pos` in the world, rotated around the y-axis by `yrot`
+ * using `color`.
  */
 void m7_draw_obj(Bitmap *dst, ObjMesh *obj, Vector3 pos, double yrot, unsigned int color);
+#endif
 
 /* Draws a line in 3D space from `p[0]` to `p[1]`.
  * It takes the Z-buffer into account.

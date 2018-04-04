@@ -11,6 +11,7 @@ screen-*.bmp
 # Backup files
 *.bak
 *~
+*.zip
 
 # Generated HTML files
 *.html

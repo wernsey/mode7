@@ -130,7 +130,8 @@ VEC_ADD_FUNCTION(pspace, ObjUVW)
 /*VEC_ADD_FUNCTION(face, ObjFace)*/
 ObjFace *obj_add_face(ObjMesh *obj) {
     if(obj->nfaces == obj->afaces) {
-        obj->afaces += obj->afaces >> 1; obj->faces = realloc(obj->faces, obj->afaces * sizeof *obj->faces);
+        obj->afaces += obj->afaces >> 1;
+        obj->faces = realloc(obj->faces, obj->afaces * sizeof *obj->faces);
     }
     ObjFace *f = &obj->faces[obj->nfaces++];
     f->g = obj->ngroups - 1;
@@ -138,6 +139,24 @@ ObjFace *obj_add_face(ObjMesh *obj) {
     return f;
 }
 VEC_ADD_FUNCTION(group, ObjGroup)
+ObjLine *obj_add_line(ObjMesh *obj) {
+    if(obj->nlines == obj->alines) {
+        obj->alines += obj->alines >> 1;
+        obj->lines = realloc(obj->lines, obj->alines * sizeof *obj->lines);
+    }
+    ObjLine *l = &obj->lines[obj->nlines++];
+    l->a = 4;
+    l->idx = calloc(l->a, sizeof *l->idx);
+    l->n = 0;
+    return l;
+}
+void obj_line_add_vtx(ObjLine *l, int i) {
+    if(l->n == l->a) {
+        l->a += l->a >> 1;
+        l->idx = realloc(l->idx, l->a * sizeof *l->idx);
+    }
+    l->idx[l->n++] = i;
+}
 
 static double read_float(OBJ_Parser *p) {
     double sign = accept(p,'-') ? -1.0 : 1.0;
@@ -243,8 +262,20 @@ static void parse_element(OBJ_Parser *p, ObjMesh *obj) {
         expect(p, ID);
         /* TODO */
     } else if(accept(p, L)) {
-        while(accept(p, NUM)) {
-            /* TODO: something something atoi(p->lastword) */
+        ObjLine *l = obj_add_line(obj);
+        while(accept(p, '-') || accept(p, NUM)) {
+            int idx;
+            if(p->lastsym == '-') {
+                expect(p, NUM);
+                idx = obj->nverts - atoi(p->lastword);
+                if(idx < 0)
+                    error(p, "negative index");
+            } else {
+                idx = atoi(p->lastword) - 1;
+                if(idx >= obj->nverts)
+                    error(p, "invalid index");
+            }
+            obj_line_add_vtx(l, idx);
         }
     } else if(accept(p, F)) {
         /* Wikipedia says that negative indices might be present. See #Relative_and_absolute_indices
@@ -322,6 +353,7 @@ ObjMesh *obj_create() {
     INIT(pspaces)
     INIT(faces)
     INIT(groups)
+    INIT(lines)
 
     obj->xmin = DBL_MAX; obj->xmax = DBL_MIN;
     obj->ymin = DBL_MAX; obj->ymax = DBL_MIN;
@@ -353,6 +385,8 @@ void obj_free(ObjMesh *obj) {
     free(obj->faces);
     for(i = 0; i < obj->ngroups; i++)
         free(obj->groups[i].name);
+    for(i = 0; i < obj->nlines; i++)
+        free(obj->lines[i].idx);
     free(obj->groups);
     free(obj);
 }
@@ -367,20 +401,26 @@ static void _obj_out(ObjMesh *obj, FILE *o) {
         ObjVert *v = obj->verts + i;
         fprintf(o,"v %g %g %g %g\n", v->x, v->y, v->z, v->w);
     }
-    fprintf(o,"# %d normals\n", obj->nnorms);
-    for(i = 0; i < obj->nnorms; i++) {
-        ObjNorm *vn = obj->norms + i;
-        fprintf(o,"vn %g %g %g\n", vn->x, vn->y, vn->z);
+    if(obj->nnorms) {
+        fprintf(o,"# %d normals\n", obj->nnorms);
+        for(i = 0; i < obj->nnorms; i++) {
+            ObjNorm *vn = obj->norms + i;
+            fprintf(o,"vn %g %g %g\n", vn->x, vn->y, vn->z);
+        }
     }
-    fprintf(o,"# %d texture coords\n", obj->ntexs);
-    for(i = 0; i < obj->ntexs; i++) {
-        ObjUVW *vt = obj->texs + i;
-        fprintf(o,"vt %g %g %g\n", vt->u, vt->v, vt->w);
+    if(obj->ntexs) {
+        fprintf(o,"# %d texture coords\n", obj->ntexs);
+        for(i = 0; i < obj->ntexs; i++) {
+            ObjUVW *vt = obj->texs + i;
+            fprintf(o,"vt %g %g %g\n", vt->u, vt->v, vt->w);
+        }
     }
-    fprintf(o,"# %d param space verts\n", obj->npspaces);
-    for(i = 0; i < obj->npspaces; i++) {
-        ObjUVW *vp = obj->pspaces + i;
-        fprintf(o,"vp %g %g %g\n", vp->u, vp->v, vp->w);
+    if(obj->npspaces) {
+        fprintf(o,"# %d param space verts\n", obj->npspaces);
+        for(i = 0; i < obj->npspaces; i++) {
+            ObjUVW *vp = obj->pspaces + i;
+            fprintf(o,"vp %g %g %g\n", vp->u, vp->v, vp->w);
+        }
     }
     fprintf(o,"# %d faces; %d groups\n", obj->nfaces, obj->ngroups);
     for(i = 0; i < obj->nfaces; i++) {
@@ -394,7 +434,7 @@ static void _obj_out(ObjMesh *obj, FILE *o) {
             s = f->s;
             fprintf(o, "s %d\n", s);
         }
-        fprintf(o,"f ");
+        fputs("f ", o);
         for(j = 0; j < 3; j++) {
             if(f->verts[j].vt >= 0) {
                 if(f->verts[j].vn >= 0) {
@@ -410,7 +450,21 @@ static void _obj_out(ObjMesh *obj, FILE *o) {
                 }
             }
         }
-        fprintf(o,"\n");
+        fputc('\n', o);
+    }
+    if(obj->nlines) {
+        fprintf(o,"# %d lines\n", obj->nlines);
+        for(i = 0; i < obj->nlines; i++) {
+            int j;
+            ObjLine *l = &obj->lines[i];
+            if(!l->n) continue;
+            fputs("l ", o);
+            for(j = 0; j < l->n; j++) {
+                fprintf(o, "%d", l->idx[j] + 1);
+                if(j < l->n-1) fputc(' ', o);
+            }
+            fputc('\n', o);
+        }
     }
 }
 

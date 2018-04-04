@@ -215,16 +215,17 @@ int render(double elapsed) {
 
 void init_game(int argc, char *argv[]) {
 
-    spr_x = 50; spr_z = 50;
+    spr_x = 160; spr_z = 200;
+	spr_angle = 180 * M_PI / 180;
 
     m7_init(10, 10, SCREEN_WIDTH - 20, SCREEN_HEIGHT - 20);
 
     m7_enable_fog(0x8090A0);
 
-    m7_set_camera_pos(50, 25, 150);
+    m7_set_camera_pos(160, 25, 320);
     m7_set_camera_ang(0, 0 * M_PI / 180);
 
-    m7_lookat(spr_x, 12, spr_z);
+    /*m7_lookat(spr_x, 12, spr_z);*/
 
     tiles = bm_load("res/HardVacuum.gif");
     if(!tiles) {
