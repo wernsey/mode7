@@ -5,6 +5,8 @@
 #include <ctype.h>
 #include <math.h>
 #include <float.h>
+#include <errno.h>
+#include <setjmp.h>
 #include <assert.h>
 
 #include "obj.h"
@@ -16,21 +18,55 @@ typedef struct {
         lastword[64];
     char *text;
     char *lex;
-    int line;
+
     int s; /* smoothing group */
+
+    jmp_buf buf; /* Exception handling */
+    int line;    /* Error reporting */
+    char error_buf[128];
+
 } OBJ_Parser;
 
 enum { V = 128, VT, VN, VP, F, L, G, S, MTLLIB, USEMTL, ID, NUM } Types;
+
+struct {
+    int t;
+    const char *name;
+} Command_Names[] = {
+    {V,"v"},
+    {VT,"vt"},
+    {VN,"vn"},
+    {VP,"vp"},
+    {F,"f"},
+    {L,"l"},
+    {G,"g"},
+    {S,"s"},
+    {MTLLIB,"mtllib"},
+    {USEMTL,"usemtl"},
+    {ID,"identifier"},
+    {NUM,"number"},
+    {-1, NULL}
+};
+static const char *typename(int type) {
+    int i;
+    for(i=0; Command_Names[i].name; i++) {
+        if(Command_Names[i].t == type) return Command_Names[i].name;
+    }
+    return "--";
+}
 
 static void nextsym(OBJ_Parser *p);
 
 static void error(OBJ_Parser *p, const char *msg, ...) {
     va_list ap;
+    unsigned int len;
     va_start(ap, msg);
-    fprintf(stderr, "\nerror:%d: ", p->line);
-    vfprintf(stderr, msg, ap);
+    snprintf(p->error_buf, sizeof p->error_buf, "OBJ: error:%d: ", p->line);
+    len = strlen(p->error_buf);
+    assert(sizeof p->error_buf - len > 0);
+    vsnprintf(p->error_buf + len, sizeof p->error_buf - len, msg, ap);
     va_end(ap);
-    exit(EXIT_FAILURE);
+    longjmp(p->buf, 1);
 }
 
 static int accept(OBJ_Parser *p, int s) {
@@ -44,7 +80,7 @@ static int accept(OBJ_Parser *p, int s) {
 static int expect(OBJ_Parser *p, int s) {
     if(accept(p, s))
         return 1;
-    error(p,"%d expected", s);
+    error(p,"%s expected\n", typename(s));
     return 0;
 }
 
@@ -85,7 +121,7 @@ space:
             p->word[l++] = p->lex[0];
             p->lex++;
             if(l >= sizeof p->word - 1)
-                error(p, "identifier too long");
+                error(p, "identifier too long\n");
         } while(isgraph(p->lex[0]));
         p->word[l] = '\0';
         if(!strcmp(p->word, "v"))  SYMBOL(V);
@@ -104,7 +140,7 @@ space:
             p->word[l++] = p->lex[0];
             p->lex++;
             if(l >= sizeof p->word - 1)
-                error(p, "number too long");
+                error(p, "number too long\n");
         } while(isdigit(p->lex[0]) || p->lex[0] == '.');
         p->word[l] = '\0';
         SYMBOL(NUM);
@@ -173,7 +209,7 @@ static ObjFaceVert *parse_face_vert(OBJ_Parser *p, ObjMesh *obj, ObjFaceVert *fv
     if(neg) {
         fv->v = obj->nverts - fv->v;
         if(fv->v < 0)
-            error(p, "negative v index");
+            error(p, "negative v index\n");
     } else
         fv->v--;
     assert(fv->v >= 0);/* unsupported at the moment */
@@ -184,7 +220,7 @@ static ObjFaceVert *parse_face_vert(OBJ_Parser *p, ObjMesh *obj, ObjFaceVert *fv
             if(neg) {
                 fv->vt = obj->ntexs - fv->vt;
                 if(fv->vt < 0)
-                    error(p, "negative vt index");
+                    error(p, "negative vt index\n");
             } else
                 fv->vt--;
         }
@@ -195,7 +231,7 @@ static ObjFaceVert *parse_face_vert(OBJ_Parser *p, ObjMesh *obj, ObjFaceVert *fv
             if(neg) {
                 fv->vn = obj->nnorms - fv->vn;
                 if(fv->vn < 0)
-                    error(p, "negative vn index");
+                    error(p, "negative vn index\n");
             } else
                 fv->vn--;
         }
@@ -249,7 +285,7 @@ static void parse_element(OBJ_Parser *p, ObjMesh *obj) {
     } else if(accept(p, S)) {
         if(accept(p, ID)) {
             if(strcmp(p->lastword, "off"))
-                error(p, "number or 'off' expected");
+                error(p, "number or 'off' expected\n");
             p->s = 0;
         } else {
             expect(p, NUM);
@@ -269,11 +305,11 @@ static void parse_element(OBJ_Parser *p, ObjMesh *obj) {
                 expect(p, NUM);
                 idx = obj->nverts - atoi(p->lastword);
                 if(idx < 0)
-                    error(p, "negative index");
+                    error(p, "negative index\n");
             } else {
                 idx = atoi(p->lastword) - 1;
                 if(idx >= obj->nverts)
-                    error(p, "invalid index");
+                    error(p, "invalid index\n");
             }
             obj_line_add_vtx(l, idx);
         }
@@ -301,7 +337,7 @@ static void parse_element(OBJ_Parser *p, ObjMesh *obj) {
         }
 
     } else {
-        error(p, "Unexpected %d", p->sym);
+        error(p, "Unexpected %s\n", typename(p->sym));
     }
     if(p->sym == '\0') return;
     expect(p, '\n');
@@ -361,16 +397,32 @@ ObjMesh *obj_create() {
     return obj;
 }
 
+static char Error_Buf[128];
+
+const char *obj_last_error() {
+    return Error_Buf;
+}
+
 ObjMesh *obj_load(const char *fname) {
     OBJ_Parser parser;
     char *text = _obj_readf(fname);
-    if(!text)
+    if(!text) {
+        snprintf(Error_Buf, sizeof Error_Buf, "OBJ: couldn't open %s: %s\n", fname, strerror(errno));
         return NULL;
+    }
     init(&parser, text);
 
     ObjMesh *obj = obj_create();
 
-    parse(&parser, obj);
+    if(!setjmp(parser.buf)) {
+        Error_Buf[0] = '\0';
+        parse(&parser, obj);
+    } else {
+        strncpy(Error_Buf, parser.error_buf, sizeof Error_Buf);
+        Error_Buf[sizeof Error_Buf - 1] = '\0';
+        obj_free(obj);
+        obj = NULL;
+    }
 
     free(text);
     return obj;
@@ -468,12 +520,15 @@ static void _obj_out(ObjMesh *obj, FILE *o) {
     }
 }
 
-void obj_out(ObjMesh *obj, const char *fname) {
+int obj_save(ObjMesh *obj, const char *fname) {
     FILE *f = fopen(fname, "w");
-    if(f) {
-        _obj_out(obj, f);
-        fclose(f);
+    if(!f) {
+        snprintf(Error_Buf, sizeof Error_Buf, "OBJ: couldn't open %s: %s\n", fname, strerror(errno));
+        return 0;
     }
+    _obj_out(obj, f);
+    fclose(f);
+    return 1;
 }
 
 #ifdef TEST
@@ -483,6 +538,7 @@ int main(int argc, char *argv[]) {
 
     ObjMesh *obj = obj_load(argv[1]);
     if(!obj) {
+        fputs(obj_last_error(), stderr);
         fprintf(stderr, "Unable to load OBJ %s", argv[1]);
         return 1;
     }

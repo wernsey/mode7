@@ -87,7 +87,8 @@ typedef struct ObjMesh {
 ObjMesh *obj_create();
 ObjMesh *obj_load(const char *fname);
 void obj_free(ObjMesh *obj);
-void obj_out(ObjMesh *obj, const char *fname);
+int obj_save(ObjMesh *obj, const char *fname);
+const char *obj_last_error();
 
 /* Seek VEC_ADD_FUNCTION for the definition of these: */
 ObjVert *obj_add_vert(ObjMesh *obj);
