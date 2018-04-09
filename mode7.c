@@ -423,7 +423,7 @@ void m7_draw_sprite(Bitmap *dst, double wx, double wy, double wz, Bitmap *src, i
 #endif
 }
 
-static void horiz_line(Bitmap *bmp, double sx, double ex, int y, double sz, double ez, int col) {
+static void horiz_line(Bitmap *bmp, int sx, int ex, int y, double sz, double ez, int col) {
     int x;
     double t;
     if(sx > ex) {
@@ -431,100 +431,82 @@ static void horiz_line(Bitmap *bmp, double sx, double ex, int y, double sz, doub
         t = sz; sz = ez; ez = t;
     }
 
-    double mz = (ez - sz) / (ex - sx);
-    double z = sz;
-    for(x = sx; x <= ex; x++, z += mz) {
+    double mz = ex > sx ? (ez - sz) / (ex - sx) : 0;
+
+    assert(ex >= sx);
+    for(x = sx; x <= ex; x++, sz += mz) {
         if(x < 0) continue;
         else if(x >= mode7.W) break;
-        if(ZBUF_GET(x, y) > z) {
+        if(ZBUF_GET(x, y) > sz) {
 
             unsigned int c = col;
-            if(mode7.fog_enabled) /* [tonc] section 21.5.2 */
-                c = bm_lerp(c, mode7.fog_color, z * FOG_RATIO);
+            if(mode7.fog_enabled)
+                c = bm_lerp(c, mode7.fog_color, sz * FOG_RATIO);
 
             bm_set(bmp, x + mode7.X, y + mode7.Y, c);
-            ZBUF_SET(x, y, z);
+            ZBUF_SET(x, y, sz);
         }
     }
 }
 
-static void fill_tri(Bitmap *bmp, Vector3 p0, Vector3 p1, Vector3 p2) {
-    /* http://www-users.mat.uni.torun.pl/~wrona/3d_tutor/tri_fillers.html */
+static void rasterize_interp(Bitmap *bmp, const Vector3 v0, const Vector3 v1, const Vector3 v2) {
 
-    /* This rounding is necessary to remove some artefacts */
-    p0.x = (int)p0.x; p0.y = (int)p0.y;
-    p1.x = (int)p1.x; p1.y = (int)p1.y;
-    p2.x = (int)p2.x; p2.y = (int)p2.y;
+    int v0y = v0.y, v1y = v1.y, v2y = v2.y;
 
-    if(p1.y < p0.y) {
-        Vector3 t = p0;
-        p0 = p1;
-        p1 = t;
-    }
-    if(p2.y < p0.y) {
-        Vector3 t = p0;
-        p0 = p2;
-        p2 = t;
-    }
-    if(p2.y < p1.y) {
-        Vector3 t = p1;
-        p1 = p2;
-        p2 = t;
-    }
+    int y = v0y;
 
-    double Sx = p0.x, Sz = p0.z;
-    double Ex = p0.x, Ez = p0.z;
-    double dx1, dx2, dx3;
-    double dz1, dz2, dz3;
+    if(v2y == v0y) return; /* degenerate case. */
 
-    unsigned int color = bm_get_color(bmp);
+    double mxB = (v2.x - v0.x)/(v2.y - v0.y);
+    double mzB = (v2.z - v0.z)/(v2.y - v0.y);
 
-    if((p1.y - p0.y) > 0) {
-        dx1 = (p1.x - p0.x) / (p1.y - p0.y);
-        dz1 = (p1.z - p0.z) / (p1.y - p0.y);
-    } else {
-        dx1 = 0;
-        dz1 = 0;
-    }
-    if((p2.y - p0.y) > 0) {
-        dx2 = (p2.x - p0.x) / (p2.y - p0.y);
-        dz2 = (p2.z - p0.z) / (p2.y - p0.y);
-    } else {
-        dx2 = 0;
-        dz2 = 0;
-    }
-    if((p2.y - p1.y) > 0) {
-        dx3 = (p2.x - p1.x) / (p2.y - p1.y);
-        dz3 = (p2.z - p1.z) / (p2.y - p1.y);
-    } else {
-        dx3 = 0;
-        dz3 = 0;
-    }
+    double xA = v0.x, xB = v0.x;
+    double zA = v0.z, zB = v0.z;
 
-    int y = p0.y;
-    if(dx1 > dx2) {
-        for(;y < p1.y; y++, Sx += dx2, Ex += dx1, Sz += dz2, Ez += dz1) {
+    if(v1y > v0y) {
+        double mxA = (v1.x - v0.x)/(v1.y - v0.y);
+        double mzA = (v1.z - v0.z)/(v1.y - v0.y);
+        for(; y < v1y; y++, xA += mxA, zA += mzA, xB += mxB, zB += mzB) {
             if(y < 0) continue;
             else if(y >= mode7.H) return;
-            horiz_line(bmp, Sx, Ex, y, Sz, Ez, color);
+            horiz_line(bmp, xA, xB, y, zA, zB, bmp->color);
         }
-        Ex = p1.x; Ez = p1.z;
-        for(;y <= p2.y; y++, Sx += dx2, Ex += dx3, Sz += dz2, Ez += dz3) {
+    }
+    xA = v1.x;
+    zA = v1.z;
+
+    if(v2y > v1y) {
+        double mxC = (v2.x - v1.x)/(v2.y - v1.y);
+        double mzC = (v2.z - v1.z)/(v2.y - v1.y);
+        for(; y < v2y; y++, xA += mxC, zA += mzC, xB += mxB, zB += mzB) {
             if(y < 0) continue;
             else if(y >= mode7.H) return;
-            horiz_line(bmp, Sx, Ex, y, Sz, Ez, color);
+            horiz_line(bmp, xA, xB, y, zA, zB, bmp->color);
+        }
+    }
+}
+
+static void rasterize(Bitmap *bmp, const Vector3 v[3]) {
+
+    if(v[0].y < v[1].y) {
+        if(v[0].y < v[2].y) {
+            if(v[1].y < v[2].y)
+                rasterize_interp(bmp, v[0], v[1], v[2]);
+            else
+                rasterize_interp(bmp, v[0], v[2], v[1]);
+        } else {
+            assert(v[2].y <= v[1].y);
+            rasterize_interp(bmp, v[2], v[0], v[1]);
         }
     } else {
-        for(;y < p1.y; y++, Sx += dx1, Ex += dx2, Sz += dz1, Ez += dz2) {
-            if(y < 0) continue;
-            else if(y >= mode7.H) return;
-            horiz_line(bmp, Sx, Ex, y, Sz, Ez, color);
-        }
-        Sx = p1.x; Sz = p1.z;
-        for(;y <= p2.y; y++, Sx += dx3, Ex += dx2, Sz += dz3, Ez += dz2) {
-            if(y < 0) continue;
-            else if(y >= mode7.H) return;
-            horiz_line(bmp, Sx, Ex, y, Sz, Ez, color);
+        if(v[1].y < v[2].y) {
+            if(v[0].y < v[2].y)
+                rasterize_interp(bmp, v[1], v[0], v[2]);
+            else
+                rasterize_interp(bmp, v[1], v[2], v[0]);
+        } else {
+            assert(v[2].y <= v[0].y);
+            rasterize_interp(bmp, v[2], v[1], v[0]);
         }
     }
 }
@@ -551,8 +533,12 @@ void m7_draw_tri(Bitmap *bmp, Vector3 tri[3]) {
         proj[i].y = -proj[i].y;
         proj[i].z = l;
     }
-    fill_tri(bmp, proj[0], proj[1], proj[2]);
+    rasterize(bmp, proj);
 }
+
+#ifndef DRAW_OBJ_LINES
+#define DRAW_OBJ_LINES 1
+#endif
 
 void m7_draw_obj(Bitmap *dst, ObjMesh *obj, Vector3 pos, double yrot, unsigned int color) {
     int i, j;
@@ -586,26 +572,30 @@ void m7_draw_obj(Bitmap *dst, ObjMesh *obj, Vector3 pos, double yrot, unsigned i
         m7_draw_tri(dst, tri);
     }
 
+#if DRAW_OBJ_LINES
     bm_set_color(dst, 0);
     for(i = 0; i < obj->nlines; i++) {
         Vector3 p[2];
         int j;
         ObjLine *l = &obj->lines[i];
         ObjVert *v = obj->verts + l->idx[0];
-        p[1].x = -cosAngle * v->x + sinAngle * v->z + pos.x;
-        p[1].y = v->y + pos.y;
-        p[1].z = -sinAngle * v->x - cosAngle * v->z + pos.z;
+        p[1].x = (-cosAngle * v->x + sinAngle * v->z) + pos.x;
+        p[1].y = (v->y) + pos.y;
+        p[1].z = (-sinAngle * v->x - cosAngle * v->z) + pos.z;
         for(j = 1; j < l->n; j++) {
             p[0] = p[1];
             v = obj->verts + l->idx[j];
-            p[1].x = -cosAngle * v->x + sinAngle * v->z + pos.x;
-            p[1].y = v->y + pos.y;
-            p[1].z = -sinAngle * v->x - cosAngle * v->z + pos.z;
+            p[1].x = (-cosAngle * v->x + sinAngle * v->z) + pos.x;
+            p[1].y = (v->y) + pos.y;
+            p[1].z = (-sinAngle * v->x - cosAngle * v->z) + pos.z;
             m7_line(dst, p);
         }
     }
-
+#endif
 }
+
+/* If there is z-fighting between a line and another element, let the line win. */
+#define LINE_ZBUF_FACTOR 0.005
 
 static void draw_line(Bitmap *b, int x0, int y0, double z0, int x1, int y1, double z1) {
     int dx = x1 - x0;
@@ -651,8 +641,8 @@ static void draw_line(Bitmap *b, int x0, int y0, double z0, int x1, int y1, doub
 
     x = x0, y = y0;
     for(;;) {
-        if(x >= 0 && x < mode7.W && y >= 0 && y < mode7.H){// && z0 >= 0 && z0 < 1.0) {
-            if(ZBUF_GET(x, y) > z0 + DBL_EPSILON) {
+        if(x >= 0 && x < mode7.W && y >= 0 && y < mode7.H){
+            if(ZBUF_GET(x, y) > z0 - LINE_ZBUF_FACTOR) {
                 unsigned int c1 = c;
                 if(mode7.fog_enabled) /* [tonc] section 21.5.2 */
                     c1 = bm_lerp(c, mode7.fog_color, z0 * FOG_RATIO);
