@@ -1,8 +1,6 @@
 #ifndef MODE7_H
 #define MODE7_H
 
-#include "obj.h"
-
 /* These are defined here, because it is unlikely they will require changing */
 /* value for D, the draw plane distance */
 #define MODE7_D 256
@@ -10,9 +8,6 @@
 #define MODE7_N +24
 /* value for F, the far clipping pane */
 #define MODE7_F +1024
-
-/* Determines how sprites are anchored in m7_draw_sprite() */
-#define MODE7_ANCHOR_BOTTOM 1
 
 /* 3-dimentsional vector structure */
 typedef struct vector3 {
@@ -51,13 +46,15 @@ void m7_enable_fog(unsigned int color);
 /* Disables fog */
 void m7_disable_fog();
 
-/* Function that will be used to draw the floor through m7_draw_floor()
- * pwx and pwz are the x and z coordinates of the pixel on the floor.
- * Data is passed unaltered through m7_draw_floor()
+/* Function that will be used to draw the floor through `m7_draw_floor()`
+ * `pwx` and `pwz` are the x and z coordinates of the pixel on the floor.
+ * `data` is passed unaltered through `m7_draw_floor()`.
+ * It should return the color of the pixel at `pwx,pxz` on the floor.
  */
 typedef unsigned int (*m7_plotfun)(void *data, double pwx, double pwz);
 
-/* Draws the floor using a specific plotfun. Data is passed to plotfun unaltered. */
+/* Draws the floor using a specific `plotfun`; `data` is passed to plotfun unaltered. 
+ */
 void m7_draw_floor(Bitmap *dst, m7_plotfun plotfun, void *data);
 
 /* Draws the bitmap `src` as a skybox on the bitmap `dst` using the current camera

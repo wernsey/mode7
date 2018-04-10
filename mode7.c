@@ -19,8 +19,23 @@ http://www.coranac.com/tonc/text/mode7ex.htm
 
 /* For performance reasons you might want
 to disable the stencil buffer here */
-#ifndef USE_STENCIL
-#define USE_STENCIL 1
+#ifndef M7_STENCIL
+#  define M7_STENCIL 1
+#endif
+
+/* Do we support the `l` command in OBJ files? */
+#ifndef M7_OBJ_LINES
+#  define M7_OBJ_LINES 1
+#endif
+
+/* Determines how sprites are anchored in m7_draw_sprite() */
+#ifndef M7_ANCHOR_BOTTOM
+#  define M7_ANCHOR_BOTTOM 1
+#endif
+
+/* If there is z-fighting between a line and another element, let the line win. */
+#ifndef LINE_ZBUF_FACTOR
+#  define LINE_ZBUF_FACTOR 0.005
 #endif
 
 /* ===========================================================================
@@ -114,7 +129,7 @@ static struct {
     /* Z-buffer */
     double *zbuf;
 
-#if USE_STENCIL
+#if M7_STENCIL
     Bitmap *stencil;
 #endif
 
@@ -142,14 +157,14 @@ void m7_init(int x, int y, int w, int h) {
 
     mode7.fog_enabled = 0;
     mode7.fog_color = 0;
-#if USE_STENCIL
+#if M7_STENCIL
     mode7.stencil = bm_create(w,h);
 #endif
 }
 
 void m7_deinit() {
     free(mode7.zbuf);
-#if USE_STENCIL
+#if M7_STENCIL
     bm_free(mode7.stencil);
 #endif
 }
@@ -228,7 +243,7 @@ void m7_draw_floor(Bitmap *dst, m7_plotfun plotfun, void *data) {
 
             bm_set(dst, px + mode7.X, py + mode7.Y, c);
             ZBUF_SET(px, py, l);
-#if USE_STENCIL
+#if M7_STENCIL
             bm_putpixel(mode7.stencil, px, py);
 #endif
         }
@@ -303,29 +318,9 @@ void m7_draw_skybox(Bitmap *dst, Bitmap *src, int height, unsigned int backgroun
     }
 }
 
-#if 0
-#define BLIT_CALLBACK
-static int sprite_blit_fun(Bitmap *dst, int dx, int dy, Bitmap *src, int sx, int sy, int mask, void *data) {
-    double l = *(double*)data, z;
-    int zx = dx - mode7.X;
-    int zy = dy - mode7.Y;
-
-    if(zx < 0 || zx > mode7.W || zy < 0 || zy >= mode7.H) return 1;
-    z = ZBUF_GET(zx, zy);
-    int c = bm_get(src, sx, sy);
-    if((c & 0xFFFFFF) != mask && z > l) {
-        bm_set(dst, dx, dy, c);
-        ZBUF_SET(zx, zy, l);
-    }
-    return 1;
-}
-#endif
-
 /* Blits a scaled sprite, taking the distance l and the Z-buffer into account */
 static void blit_zbuf(Bitmap *dst, int dx, int dy, int dw, int dh, double l, Bitmap *src, int sx, int sy, int sw, int sh) {
-#ifdef BLIT_CALLBACK
-    bm_blit_ex_fun(dst, dx, dy, dw, dh, src, sx, sy, sw, sh, sprite_blit_fun, &l);
-#else
+
     /* This particular version might be slightly faster because of how
     it deals with clipping, and there's no function call overhead for the callback */
     int x, y, ssx, sdx;
@@ -387,7 +382,7 @@ static void blit_zbuf(Bitmap *dst, int dx, int dy, int dw, int dh, double l, Bit
                         c = bm_lerp(c, mode7.fog_color, l * FOG_RATIO);
                     bm_set(dst, x + mode7.X, y + mode7.Y, c);
                     ZBUF_SET(x, y, l);
-#if USE_STENCIL
+#if M7_STENCIL
                     bm_putpixel(mode7.stencil, x, y);
 #endif
                 }
@@ -405,7 +400,6 @@ static void blit_zbuf(Bitmap *dst, int dx, int dy, int dw, int dh, double l, Bit
             sy++;
         }
     }
-#endif
 }
 
 void m7_draw_sprite(Bitmap *dst, double wx, double wy, double wz, Bitmap *src, int sx, int sy, int sw, int sh) {
@@ -437,7 +431,7 @@ void m7_draw_sprite(Bitmap *dst, double wx, double wy, double wz, Bitmap *src, i
     dw = (double)sw/l;
     dh = (double)sh/l;
 
-#if MODE7_ANCHOR_BOTTOM
+#if M7_ANCHOR_BOTTOM
     /* To anchor the sprites at the bottom: */
     blit_zbuf(dst, xs.x - dw/2, xs.y - dh, dw, dh, l, src, sx, sy, sw, sh);
 #else
@@ -467,7 +461,7 @@ static void horiz_line(Bitmap *bmp, int sx, int ex, int y, double sz, double ez,
 
             bm_set(bmp, x + mode7.X, y + mode7.Y, c);
             ZBUF_SET(x, y, sz);
-#if USE_STENCIL
+#if M7_STENCIL
             bm_putpixel(mode7.stencil, x, y);
 #endif
         }
@@ -561,10 +555,6 @@ void m7_draw_tri(Bitmap *bmp, Vector3 tri[3]) {
     rasterize(bmp, proj);
 }
 
-#ifndef DRAW_OBJ_LINES
-#define DRAW_OBJ_LINES 1
-#endif
-
 void m7_draw_obj(Bitmap *dst, ObjMesh *obj, Vector3 pos, double yrot, unsigned int color) {
     int i, j;
     if(!obj)
@@ -597,7 +587,7 @@ void m7_draw_obj(Bitmap *dst, ObjMesh *obj, Vector3 pos, double yrot, unsigned i
         m7_draw_tri(dst, tri);
     }
 
-#if DRAW_OBJ_LINES
+#if M7_OBJ_LINES
     bm_set_color(dst, 0);
     for(i = 0; i < obj->nlines; i++) {
         Vector3 p[2];
@@ -618,9 +608,6 @@ void m7_draw_obj(Bitmap *dst, ObjMesh *obj, Vector3 pos, double yrot, unsigned i
     }
 #endif
 }
-
-/* If there is z-fighting between a line and another element, let the line win. */
-#define LINE_ZBUF_FACTOR 0.005
 
 static void draw_line(Bitmap *b, int x0, int y0, double z0, int x1, int y1, double z1) {
     int dx = x1 - x0;
@@ -673,7 +660,7 @@ static void draw_line(Bitmap *b, int x0, int y0, double z0, int x1, int y1, doub
                     c1 = bm_lerp(c, mode7.fog_color, z0 * FOG_RATIO);
                 ZBUF_SET(x, y, z0);
                 bm_set(b, x + mode7.X, y + mode7.Y, c1);
-#if USE_STENCIL
+#if M7_STENCIL
                 bm_putpixel(mode7.stencil, x, y);
 #endif
             }
@@ -734,26 +721,26 @@ double m7_rel_angle(double phi_o) {
 }
 
 void m7_set_stencil(unsigned int color) {
-#if USE_STENCIL
+#if M7_STENCIL
     bm_set_color(mode7.stencil, color);
 #endif
 }
 void m7_clear_stencil() {
-#if USE_STENCIL
+#if M7_STENCIL
     bm_set_color(mode7.stencil, 0);
     bm_clear(mode7.stencil);
 #endif
 }
 Bitmap *m7_get_stencil() {
-    assert(USE_STENCIL);
-#if USE_STENCIL
+    assert(M7_STENCIL); /* You must have M7_STENCIL defined to use this */
+#if M7_STENCIL
     return mode7.stencil;
 #else
     return NULL;
 #endif
 }
 unsigned int m7_stencil_at(int x, int y) {
-#if USE_STENCIL
+#if M7_STENCIL
     assert(x >= 0 && x < mode7.stencil->w);
     assert(y >= 0 && y < mode7.stencil->h);
     return bm_get(mode7.stencil, x, y);

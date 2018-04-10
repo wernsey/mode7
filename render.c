@@ -8,8 +8,8 @@
 #  include "gdi.h"
 #endif
 
+#include "obj.h"
 #include "mode7.h"
-
 
 static Bitmap *tiles = NULL;
 static Bitmap *props = NULL;
