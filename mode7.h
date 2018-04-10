@@ -102,4 +102,16 @@ void m7_line(Bitmap *bmp, Vector3 p[2]);
  */
 double m7_rel_angle(double phi_o);
 
+/* Sets the color of the stencil buffer */
+void m7_set_stencil(unsigned int color);
+
+/* Clears the stencil buffer to zeros */
+void m7_clear_stencil();
+
+/* Gets the value of the stencil buffer at the point `x,y` */
+unsigned int m7_stencil_at(int x, int y);
+
+/* Retrieves the `Bitmap` of the stencil buffer */
+Bitmap *m7_get_stencil();
+
 #endif  /* MODE7_H */

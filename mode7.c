@@ -17,6 +17,12 @@ http://www.coranac.com/tonc/text/mode7ex.htm
 
 #define FOG_RATIO 6/16
 
+/* For performance reasons you might want
+to disable the stencil buffer here */
+#ifndef USE_STENCIL
+#define USE_STENCIL 1
+#endif
+
 /* ===========================================================================
 Vectors an matrices
  ===========================================================================*/
@@ -108,6 +114,10 @@ static struct {
     /* Z-buffer */
     double *zbuf;
 
+#if USE_STENCIL
+    Bitmap *stencil;
+#endif
+
 } mode7;
 
 void m7_init(int x, int y, int w, int h) {
@@ -132,10 +142,16 @@ void m7_init(int x, int y, int w, int h) {
 
     mode7.fog_enabled = 0;
     mode7.fog_color = 0;
+#if USE_STENCIL
+    mode7.stencil = bm_create(w,h);
+#endif
 }
 
 void m7_deinit() {
     free(mode7.zbuf);
+#if USE_STENCIL
+    bm_free(mode7.stencil);
+#endif
 }
 
 void m7_enable_fog(unsigned int color) {
@@ -212,6 +228,9 @@ void m7_draw_floor(Bitmap *dst, m7_plotfun plotfun, void *data) {
 
             bm_set(dst, px + mode7.X, py + mode7.Y, c);
             ZBUF_SET(px, py, l);
+#if USE_STENCIL
+            bm_putpixel(mode7.stencil, px, py);
+#endif
         }
     }
 }
@@ -368,6 +387,9 @@ static void blit_zbuf(Bitmap *dst, int dx, int dy, int dw, int dh, double l, Bit
                         c = bm_lerp(c, mode7.fog_color, l * FOG_RATIO);
                     bm_set(dst, x + mode7.X, y + mode7.Y, c);
                     ZBUF_SET(x, y, l);
+#if USE_STENCIL
+                    bm_putpixel(mode7.stencil, x, y);
+#endif
                 }
             }
 
@@ -445,6 +467,9 @@ static void horiz_line(Bitmap *bmp, int sx, int ex, int y, double sz, double ez,
 
             bm_set(bmp, x + mode7.X, y + mode7.Y, c);
             ZBUF_SET(x, y, sz);
+#if USE_STENCIL
+            bm_putpixel(mode7.stencil, x, y);
+#endif
         }
     }
 }
@@ -648,6 +673,9 @@ static void draw_line(Bitmap *b, int x0, int y0, double z0, int x1, int y1, doub
                     c1 = bm_lerp(c, mode7.fog_color, z0 * FOG_RATIO);
                 ZBUF_SET(x, y, z0);
                 bm_set(b, x + mode7.X, y + mode7.Y, c1);
+#if USE_STENCIL
+                bm_putpixel(mode7.stencil, x, y);
+#endif
             }
         }
         if(x == x1 && y == y1) break;
@@ -703,4 +731,33 @@ double m7_rel_angle(double phi_o) {
     while (w < 0.0) w += 2 * M_PI;
     while (w >= 2 * M_PI) w -= 2 * M_PI;
     return w;
+}
+
+void m7_set_stencil(unsigned int color) {
+#if USE_STENCIL
+    bm_set_color(mode7.stencil, color);
+#endif
+}
+void m7_clear_stencil() {
+#if USE_STENCIL
+    bm_set_color(mode7.stencil, 0);
+    bm_clear(mode7.stencil);
+#endif
+}
+Bitmap *m7_get_stencil() {
+    assert(USE_STENCIL);
+#if USE_STENCIL
+    return mode7.stencil;
+#else
+    return NULL;
+#endif
+}
+unsigned int m7_stencil_at(int x, int y) {
+#if USE_STENCIL
+    assert(x >= 0 && x < mode7.stencil->w);
+    assert(y >= 0 && y < mode7.stencil->h);
+    return bm_get(mode7.stencil, x, y);
+#else
+    return 0;
+#endif
 }

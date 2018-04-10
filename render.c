@@ -40,6 +40,7 @@ int npoints = (sizeof prop_positions)/sizeof(prop_positions[0]);
 void draw_props() {
     int i;
     for(i = 0; i < npoints; i++) {
+        m7_set_stencil(0xFF0000 + (i << 8));
         m7_draw_sprite(screen, prop_positions[i].x, prop_positions[i].y, prop_positions[i].z, props, (i & 0x01)?40:0, 0, 40, 60);
     }
 }
@@ -135,6 +136,12 @@ void update_all(double elapsed) {
     after you've called `m7_set_camera_pos` */
     if(keys[KCODEA(a,A)])
         m7_lookat(spr_x, 16, spr_z);
+
+    /* Press 'b' to dump the stencil buffer to a file */
+    if(keys[KCODEA(b,B)]) {
+        Bitmap *stencil = m7_get_stencil();
+        bm_save(stencil, "stencil.bmp");
+    }
 }
 
 int render(double elapsed) {
@@ -155,12 +162,16 @@ int render(double elapsed) {
 
     m7_clear_zbuf();
 
+    m7_clear_stencil();
+
     m7_draw_skybox(screen, sky, sky->h * 4, 0xC0D0E0);
 
+    m7_set_stencil(0x00FF00);
     m7_draw_floor(screen, the_plotfun, NULL);
 
     draw_props();
 
+    m7_set_stencil(0x0000FF);
     m7_draw_obj(screen, obj, obj_pos, obj_rot, bm_atoi("#51687F"));
 
     Vector3 p[2];
@@ -198,6 +209,7 @@ int render(double elapsed) {
         case 3: row = 3; break;
     }
 
+    m7_set_stencil(0xFFFF00);
     m7_draw_sprite(screen, spr_x, 0, spr_z, guy, col * 24, row * 32, 24, 32);
 
     m7_get_camera_pos(&x, &y, &z);
@@ -216,7 +228,7 @@ int render(double elapsed) {
 void init_game(int argc, char *argv[]) {
 
     spr_x = 160; spr_z = 200;
-	spr_angle = 180 * M_PI / 180;
+    spr_angle = 180 * M_PI / 180;
 
     m7_init(10, 10, SCREEN_WIDTH - 20, SCREEN_HEIGHT - 20);
 
