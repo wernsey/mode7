@@ -25,6 +25,8 @@ Vector3 v3_normalize(Vector3 v);
 in which the mode-7 stuff will be drawn */
 void m7_init(int x, int y, int w, int h);
 
+void m7_dims(int *X, int *Y, int *W, int *H);
+
 /* Cleans up the module. */
 void m7_deinit();
 
@@ -45,6 +47,9 @@ void m7_enable_fog(unsigned int color);
 
 /* Disables fog */
 void m7_disable_fog();
+
+/* Enables/disables drawing backfaces */
+void m7_backface(int enable);
 
 /* Function that will be used to draw the floor through `m7_draw_floor()`
  * `pwx` and `pwz` are the x and z coordinates of the pixel on the floor.

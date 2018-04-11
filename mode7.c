@@ -126,6 +126,8 @@ static struct {
     int fog_enabled;
     unsigned int fog_color;
 
+    int backface_enabled;
+
     /* Z-buffer */
     double *zbuf;
 
@@ -157,9 +159,19 @@ void m7_init(int x, int y, int w, int h) {
 
     mode7.fog_enabled = 0;
     mode7.fog_color = 0;
+
+    mode7.backface_enabled = 1;
+
 #if M7_STENCIL
     mode7.stencil = bm_create(w,h);
 #endif
+}
+
+void m7_dims(int *X, int *Y, int *W, int *H) {
+    if(X) *X = mode7.X;
+    if(Y) *Y = mode7.Y;
+    if(W) *W = mode7.W;
+    if(H) *H = mode7.H;
 }
 
 void m7_deinit() {
@@ -175,6 +187,9 @@ void m7_enable_fog(unsigned int color) {
 }
 void m7_disable_fog() {
     mode7.fog_enabled = 0;
+}
+void m7_backface(int enable) {
+    mode7.backface_enabled = enable;
 }
 
 #define ZBUF_SET(x,y,v) mode7.zbuf[(y) * mode7.W + (x)] = v
@@ -552,6 +567,15 @@ void m7_draw_tri(Bitmap *bmp, Vector3 tri[3]) {
         proj[i].y = -proj[i].y;
         proj[i].z = l;
     }
+
+    if(!mode7.backface_enabled) {
+        /* Backface culling */
+        Vector3 n = (v3_cross(v3_sub(proj[2],proj[0]), v3_sub(proj[1],proj[0])));
+        Vector3 view_dir = v3(0,0,1);
+        if(v3_dot(n, view_dir) < 0)
+            return;
+    }
+
     rasterize(bmp, proj);
 }
 

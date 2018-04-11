@@ -25,19 +25,19 @@ static int is_animating = 0;
 static double fwd_speed = 100.0;
 static double rot_speed = 180.0;
 
-ObjMesh *obj = NULL;
-Vector3 obj_pos = {160, 0, 160};
-double obj_rot = 0.0;
+static ObjMesh *obj = NULL;
+static Vector3 obj_pos = {160, 0, 160};
+static double obj_rot = 0.0;
 
-Vector3 prop_positions[] = {
+static Vector3 prop_positions[] = {
     {0, 0, 320},
     {0, 0, 0},
     {320, 0, 0},
     {320, 0, 320},
 };
-int npoints = (sizeof prop_positions)/sizeof(prop_positions[0]);
+static int npoints = (sizeof prop_positions)/sizeof(prop_positions[0]);
 
-void draw_props() {
+static void draw_props() {
     int i;
     for(i = 0; i < npoints; i++) {
         m7_set_stencil(0xFF0000 + (i << 8));
@@ -45,30 +45,50 @@ void draw_props() {
     }
 }
 
-unsigned int the_plotfun(void *data, double pwx, double pwz) {
+static unsigned int the_plotfun(void *data, double pwx, double pwz) {
     int c = 0x8090A0;
 
     if(pwx >= 0 && pwx < 320 && pwz >= 0 && pwz < 320) {
 
         int mx = pwx / 20;
         int my = pwz / 20;
-        // TODO: Use mx/my to look up the tile on a "map" data structure
+
+        /* TODO: Use mx/my to look up the tile on a "map" data structure;
+        For now, we just draw the tile at 4,1
+        */
         int tile_col = 4;
         int tile_row = 1;
+
         int tx = tile_col * 20;
         int ty = tile_row * 20;
+
         (void)mx;(void)my;
         (void)tx;(void)ty;
 
+
         int sx = (int)pwx % 20;
         int sy = (int)pwz % 20;
+        if(pwx < 0) sx = 19 - sx;
+        if(pwz < 0) sy = 19 - sy;
+
+        c = bm_picker(tiles, tx + sx, ty + sy);
+    } else {
+
+        /* Out of bounds, just draw the tile at 4,1 infinitely */
+        int tx = 4 * 20;
+        int ty = 1 * 20;
+
+        int sx = (int)abs(pwx) % 20;
+        int sy = (int)abs(pwz) % 20;
+        if(pwx < 0) sx = 19 - sx;
+        if(pwz < 0) sy = 19 - sy;
 
         c = bm_picker(tiles, tx + sx, ty + sy);
     }
     return c;
 }
 
-void update_all(double elapsed) {
+static void update_all(double elapsed) {
 
     double x, y, z;
     double phi, theta;
@@ -86,6 +106,14 @@ void update_all(double elapsed) {
     if(keys[KCODE(DOWN)]) {
         z += elapsed * fwd_speed * cos(phi);
         x -= elapsed * fwd_speed * sin(phi);
+    }
+    if(keys[KCODE(COMMA)]) {
+        z += elapsed * fwd_speed * cos(phi + M_PI/2);
+        x -= elapsed * fwd_speed * sin(phi + M_PI/2);
+    }
+    if(keys[KCODE(PERIOD)]) {
+        z -= elapsed * fwd_speed * cos(phi + M_PI/2);
+        x += elapsed * fwd_speed * sin(phi + M_PI/2);
     }
 
     /* Left and right to turn the camera */
@@ -237,7 +265,8 @@ void init_game(int argc, char *argv[]) {
     m7_set_camera_pos(160, 25, 320);
     m7_set_camera_ang(0, 0 * M_PI / 180);
 
-    /*m7_lookat(spr_x, 12, spr_z);*/
+    /* Don't draw backfaces */
+    m7_backface(0);
 
     tiles = bm_load("res/HardVacuum.gif");
     if(!tiles) {
