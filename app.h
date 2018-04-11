@@ -8,8 +8,3 @@
 
 /* Set to one to make ESC quit the game - when debugging */
 #define ESCAPE_QUITS    1
-
-// TODO: Remove later:
-#ifndef NDEBUG
-#  define FLUSH 1
-#endif

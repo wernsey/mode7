@@ -4,9 +4,10 @@
 *.exe
 mode7
 
-# Log files, screenshots
+# Log files, screenshots...
 *.log
 screen-*.bmp
+stencil.bmp
 
 # Backup files
 *.bak
