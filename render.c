@@ -207,16 +207,16 @@ int render(double elapsed) {
 
     p[0] = v3(140, 0, 140);
     p[1] = v3(140, 20, 140);
-    m7_line(screen, p);
+    m7_line(screen, p[0], p[1]);
     p[0] = v3(180, 0, 140);
     p[1] = v3(180, 20, 140);
-    m7_line(screen, p);
+    m7_line(screen, p[0], p[1]);
     p[0] = v3(180, 0, 180);
     p[1] = v3(180, 20, 180);
-    m7_line(screen, p);
+    m7_line(screen, p[0], p[1]);
     p[0] = v3(140, 0, 180);
     p[1] = v3(140, 20, 180);
-    m7_line(screen, p);
+    m7_line(screen, p[0], p[1]);
 
     if(is_animating) {
         spr_frame += elapsed;
@@ -261,6 +261,8 @@ void init_game(int argc, char *argv[]) {
     m7_init(10, 10, SCREEN_WIDTH - 20, SCREEN_HEIGHT - 20);
 
     m7_enable_fog(0x8090A0);
+	
+	m7_anchor_mode(M7_ANCHOR_BOTTOM);
 
     m7_set_camera_pos(160, 25, 320);
     m7_set_camera_ang(0, 0 * M_PI / 180);

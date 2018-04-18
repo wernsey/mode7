@@ -16,7 +16,9 @@ typedef struct vector3 {
 
 /* Some vector routines */
 Vector3 v3(double x, double y, double z);
+Vector3 v3_add(Vector3 v1, Vector3 v2);
 Vector3 v3_sub(Vector3 v1, Vector3 v2);
+int v3_equal(Vector3 v1, Vector3 v2);
 double v3_dot(Vector3 v1, Vector3 v2);
 Vector3 v3_cross(Vector3 v1, Vector3 v2);
 Vector3 v3_normalize(Vector3 v);
@@ -48,6 +50,9 @@ void m7_enable_fog(unsigned int color);
 /* Disables fog */
 void m7_disable_fog();
 
+enum M7_ANCHOR { M7_ANCHOR_CENTER, M7_ANCHOR_BOTTOM };
+void m7_anchor_mode(enum M7_ANCHOR mode);
+
 /* Enables/disables drawing backfaces */
 void m7_backface(int enable);
 
@@ -58,7 +63,7 @@ void m7_backface(int enable);
  */
 typedef unsigned int (*m7_plotfun)(void *data, double pwx, double pwz);
 
-/* Draws the floor using a specific `plotfun`; `data` is passed to plotfun unaltered. 
+/* Draws the floor using a specific `plotfun`; `data` is passed to plotfun unaltered.
  */
 void m7_draw_floor(Bitmap *dst, m7_plotfun plotfun, void *data);
 
@@ -93,16 +98,19 @@ void m7_draw_tri(Bitmap *bmp, Vector3 tri[3]);
 void m7_draw_obj(Bitmap *dst, ObjMesh *obj, Vector3 pos, double yrot, unsigned int color);
 #endif
 
-/* Draws a line in 3D space from `p[0]` to `p[1]`.
+/* Draws a line in 3D space from `p0` to `p1`.
  * It takes the Z-buffer into account.
  */
-void m7_line(Bitmap *bmp, Vector3 p[2]);
+void m7_line(Bitmap *bmp, Vector3 p0, Vector3 p1);
 
 /* Finds the angle of an object facing in direction `phi_o`
  * relative to the camera.
  * It is used to choose the appropriate sprite for an object.
  */
 double m7_rel_angle(double phi_o);
+
+/* Enables/disables the stencil buffer */
+void m7_stencil_enable(int enable);
 
 /* Sets the color of the stencil buffer */
 void m7_set_stencil(unsigned int color);
@@ -111,9 +119,15 @@ void m7_set_stencil(unsigned int color);
 void m7_clear_stencil();
 
 /* Gets the value of the stencil buffer at the point `x,y` */
-unsigned int m7_stencil_at(int x, int y);
+unsigned int m7_stencil_enable_at(int x, int y);
 
 /* Retrieves the `Bitmap` of the stencil buffer */
 Bitmap *m7_get_stencil();
+
+/* Projects a point `p` using the Mode7 parameters.
+ * The projected point is stored in `*o`.
+ * Returns 1 on success, 0 if the point was clipped.
+ */
+int m7_project(Vector3 p, Vector3 *o);
 
 #endif  /* MODE7_H */

@@ -4,6 +4,7 @@ Based almost entirely on this book:
 http://www.coranac.com/tonc/text/mode7ex.htm
 */
 #include <stdlib.h>
+#include <string.h>
 #include <math.h>
 #include <float.h>
 #include <assert.h>
@@ -28,11 +29,6 @@ to disable the stencil buffer here */
 #  define M7_OBJ_LINES 1
 #endif
 
-/* Determines how sprites are anchored in m7_draw_sprite() */
-#ifndef M7_ANCHOR_BOTTOM
-#  define M7_ANCHOR_BOTTOM 1
-#endif
-
 /* If there is z-fighting between a line and another element, let the line win. */
 #ifndef LINE_ZBUF_FACTOR
 #  define LINE_ZBUF_FACTOR 0.005
@@ -53,8 +49,16 @@ Vector3 v3(double x, double y, double z) {
     return v;
 }
 
+Vector3 v3_add(Vector3 v1, Vector3 v2) {
+    return v3(v1.x + v2.x, v1.y + v2.y, v1.z + v2.z);
+}
+
 Vector3 v3_sub(Vector3 v1, Vector3 v2) {
     return v3(v1.x - v2.x, v1.y - v2.y, v1.z - v2.z);
+}
+
+int v3_equal(Vector3 v1, Vector3 v2) {
+    return v1.x == v2.x && v1.y == v2.y && v1.z == v2.z;
 }
 
 double v3_dot(Vector3 v1, Vector3 v2) {
@@ -100,6 +104,11 @@ static Mat3 make_camera(double phi, double theta) {
 The actual Mode 7 code
  ===========================================================================*/
 
+typedef float ZBUF_TYPE;
+
+#define ZBUF_SET(x,y,v) mode7.zbuf[(y) * mode7.W + (x)] = (v)
+#define ZBUF_GET(x,y) mode7.zbuf[(y) * mode7.W + (x)]
+ 
 static struct {
 
     /* Position and Dimensions of the view plane */
@@ -116,6 +125,8 @@ static struct {
     /* a_cw - Vector placing the camera in the world */
     Vector3 acw;
 
+    Vector3 asp;
+
     /* Orientation of the camera */
     double phi;
     double theta;
@@ -128,16 +139,19 @@ static struct {
 
     int backface_enabled;
 
-    /* Z-buffer */
-    double *zbuf;
+    enum M7_ANCHOR anchor;
 
-#if M7_STENCIL
+    /* Z-buffer */
+    ZBUF_TYPE *zbuf;
+
+    int stencil_enabled;
     Bitmap *stencil;
-#endif
 
 } mode7;
 
 void m7_init(int x, int y, int w, int h) {
+
+    memset(&mode7, 0, sizeof mode7);
 
     mode7.X = x;
     mode7.Y = y;
@@ -162,9 +176,12 @@ void m7_init(int x, int y, int w, int h) {
 
     mode7.backface_enabled = 1;
 
-#if M7_STENCIL
+    mode7.anchor = M7_ANCHOR_CENTER;
+
+    mode7.asp = v3(mode7.L, mode7.T, -mode7.D);
+
+    mode7.stencil_enabled = 1;
     mode7.stencil = bm_create(w,h);
-#endif
 }
 
 void m7_dims(int *X, int *Y, int *W, int *H) {
@@ -176,9 +193,7 @@ void m7_dims(int *X, int *Y, int *W, int *H) {
 
 void m7_deinit() {
     free(mode7.zbuf);
-#if M7_STENCIL
     bm_free(mode7.stencil);
-#endif
 }
 
 void m7_enable_fog(unsigned int color) {
@@ -191,9 +206,9 @@ void m7_disable_fog() {
 void m7_backface(int enable) {
     mode7.backface_enabled = enable;
 }
-
-#define ZBUF_SET(x,y,v) mode7.zbuf[(y) * mode7.W + (x)] = v
-#define ZBUF_GET(x,y) mode7.zbuf[(y) * mode7.W + (x)]
+void m7_anchor_mode(enum M7_ANCHOR mode) {
+    mode7.anchor = mode;
+}
 
 void m7_clear_zbuf() {
     int i;
@@ -258,9 +273,8 @@ void m7_draw_floor(Bitmap *dst, m7_plotfun plotfun, void *data) {
 
             bm_set(dst, px + mode7.X, py + mode7.Y, c);
             ZBUF_SET(px, py, l);
-#if M7_STENCIL
-            bm_putpixel(mode7.stencil, px, py);
-#endif
+            if(mode7.stencil_enabled)
+                bm_putpixel(mode7.stencil, px, py);
         }
     }
 }
@@ -397,9 +411,8 @@ static void blit_zbuf(Bitmap *dst, int dx, int dy, int dw, int dh, double l, Bit
                         c = bm_lerp(c, mode7.fog_color, l * FOG_RATIO);
                     bm_set(dst, x + mode7.X, y + mode7.Y, c);
                     ZBUF_SET(x, y, l);
-#if M7_STENCIL
-                    bm_putpixel(mode7.stencil, x, y);
-#endif
+                    if(mode7.stencil_enabled)
+                        bm_putpixel(mode7.stencil, x, y);
                 }
             }
 
@@ -419,7 +432,7 @@ static void blit_zbuf(Bitmap *dst, int dx, int dy, int dw, int dh, double l, Bit
 
 void m7_draw_sprite(Bitmap *dst, double wx, double wy, double wz, Bitmap *src, int sx, int sy, int sw, int sh) {
 
-    Vector3 xw, asp, r;
+    Vector3 xw, r;
     double zc, l;
 
     Vector3 xp, xs;
@@ -427,7 +440,6 @@ void m7_draw_sprite(Bitmap *dst, double wx, double wy, double wz, Bitmap *src, i
     int dw, dh;
 
     xw = v3(wx, wy, wz);
-    asp = v3(mode7.L, mode7.T, -mode7.D);
 
     r = v3_sub(xw, mode7.acw);
 
@@ -438,7 +450,7 @@ void m7_draw_sprite(Bitmap *dst, double wx, double wy, double wz, Bitmap *src, i
     xp.y = v3_dot(mode7.C.v, r)/l;
     xp.z = -mode7.D;
 
-    xs = v3_sub(xp, asp);
+    xs = v3_sub(xp, mode7.asp);
     xs.y = -xs.y;
 
     if(-zc < mode7.N || -zc > mode7.F) return; /* near/far clipping plane */
@@ -446,12 +458,12 @@ void m7_draw_sprite(Bitmap *dst, double wx, double wy, double wz, Bitmap *src, i
     dw = (double)sw/l;
     dh = (double)sh/l;
 
-#if M7_ANCHOR_BOTTOM
-    /* To anchor the sprites at the bottom: */
-    blit_zbuf(dst, xs.x - dw/2, xs.y - dh, dw, dh, l, src, sx, sy, sw, sh);
-#else
-    blit_zbuf(dst, xs.x - dw/2, xs.y - dh/2, dw, dh, l, src, sx, sy, sw, sh);
-#endif
+    if(mode7.anchor == M7_ANCHOR_BOTTOM) {
+        /* To anchor the sprites at the bottom: */
+        blit_zbuf(dst, xs.x - dw/2, xs.y - dh, dw, dh, l, src, sx, sy, sw, sh);
+    } else {
+        blit_zbuf(dst, xs.x - dw/2, xs.y - dh/2, dw, dh, l, src, sx, sy, sw, sh);
+    }
 }
 
 static void horiz_line(Bitmap *bmp, int sx, int ex, int y, double sz, double ez, int col) {
@@ -476,9 +488,8 @@ static void horiz_line(Bitmap *bmp, int sx, int ex, int y, double sz, double ez,
 
             bm_set(bmp, x + mode7.X, y + mode7.Y, c);
             ZBUF_SET(x, y, sz);
-#if M7_STENCIL
-            bm_putpixel(mode7.stencil, x, y);
-#endif
+            if(mode7.stencil_enabled)
+                bm_putpixel(mode7.stencil, x, y);
         }
     }
 }
@@ -549,8 +560,6 @@ void m7_draw_tri(Bitmap *bmp, Vector3 tri[3]) {
     Vector3 proj[3];
     int i;
 
-    Vector3 asp = v3(mode7.L, mode7.T, -mode7.D);
-
     for(i = 0; i < 3; i++) {
         Vector3 xp;
         Vector3 r = v3_sub(tri[i], mode7.acw);
@@ -563,7 +572,7 @@ void m7_draw_tri(Bitmap *bmp, Vector3 tri[3]) {
         if(-zc < mode7.N || -zc > mode7.F) return; /* near/far clipping plane */
 
         xp = v3(x_p, y_p, -mode7.D);
-        proj[i] = v3_sub(xp, asp);
+        proj[i] = v3_sub(xp, mode7.asp);
         proj[i].y = -proj[i].y;
         proj[i].z = l;
     }
@@ -575,7 +584,6 @@ void m7_draw_tri(Bitmap *bmp, Vector3 tri[3]) {
         if(v3_dot(n, view_dir) < 0)
             return;
     }
-
     rasterize(bmp, proj);
 }
 
@@ -602,12 +610,12 @@ void m7_draw_obj(Bitmap *dst, ObjMesh *obj, Vector3 pos, double yrot, unsigned i
         }
         Vector3 n = v3_normalize(v3_cross(v3_sub(tri[2],tri[0]), v3_sub(tri[1],tri[0])));
 
-        double intensity = v3_dot(n, light_dir);
-        if(intensity < 0) intensity = 0;
-        intensity = intensity * 0.4 + 0.6;
-        unsigned int light = bm_lerp(0, color, intensity);
-
-        bm_set_color(dst, light);
+        double intensity = (v3_dot(n, light_dir) + 1) / 2.0;
+        
+		intensity = intensity * 0.2 + 0.8;
+		unsigned int light = bm_lerp(0, color, intensity);
+		bm_set_color(dst, light);
+        
         m7_draw_tri(dst, tri);
     }
 
@@ -627,7 +635,7 @@ void m7_draw_obj(Bitmap *dst, ObjMesh *obj, Vector3 pos, double yrot, unsigned i
             p[1].x = (-cosAngle * v->x + sinAngle * v->z) + pos.x;
             p[1].y = (v->y) + pos.y;
             p[1].z = (-sinAngle * v->x - cosAngle * v->z) + pos.z;
-            m7_line(dst, p);
+            m7_line(dst, p[0], p[1]);
         }
     }
 #endif
@@ -684,9 +692,8 @@ static void draw_line(Bitmap *b, int x0, int y0, double z0, int x1, int y1, doub
                     c1 = bm_lerp(c, mode7.fog_color, z0 * FOG_RATIO);
                 ZBUF_SET(x, y, z0);
                 bm_set(b, x + mode7.X, y + mode7.Y, c1);
-#if M7_STENCIL
-                bm_putpixel(mode7.stencil, x, y);
-#endif
+                if(mode7.stencil_enabled)
+                    bm_putpixel(mode7.stencil, x, y);
             }
         }
         if(x == x1 && y == y1) break;
@@ -703,27 +710,31 @@ static void draw_line(Bitmap *b, int x0, int y0, double z0, int x1, int y1, doub
     }
 }
 
-void m7_line(Bitmap *bmp, Vector3 p[2]) {
+int m7_project(Vector3 p, Vector3 *o) {
+    Vector3 xp;
+    Vector3 r = v3_sub(p, mode7.acw);
+
+    double zc = v3_dot(mode7.C.w,r);
+    double l = -zc/mode7.D;
+    double x_p = v3_dot(mode7.C.u,r)/l;
+    double y_p = v3_dot(mode7.C.v,r)/l;
+
+    if(-zc < mode7.N || -zc > mode7.F) return 0; /* near/far clipping plane */
+
+    xp = v3(x_p, y_p, -mode7.D);
+    *o = v3_sub(xp, mode7.asp);
+    o->y = - o->y;
+    o->z = l;
+    return 1;
+}
+
+void m7_line(Bitmap *bmp, Vector3 p0, Vector3 p1) {
     Vector3 proj[2];
-    int i;
-    Vector3 asp = v3(mode7.L, mode7.T, -mode7.D);
 
-    for(i = 0; i < 2; i++) {
-        Vector3 xp;
-        Vector3 r = v3_sub(p[i], mode7.acw);
+    if(!m7_project(p0, &proj[0]) ||
+        !m7_project(p1, &proj[1]))
+        return;
 
-        double zc = v3_dot(mode7.C.w,r);
-        double l = -zc/mode7.D;
-        double x_p = v3_dot(mode7.C.u,r)/l;
-        double y_p = v3_dot(mode7.C.v,r)/l;
-
-        if(-zc < mode7.N || -zc > mode7.F) return; /* near/far clipping plane */
-
-        xp = v3(x_p, y_p, -mode7.D);
-        proj[i] = v3_sub(xp, asp);
-        proj[i].y = -proj[i].y;
-        proj[i].z = l;
-    }
     draw_line(bmp, proj[0].x, proj[0].y, proj[0].z, proj[1].x, proj[1].y, proj[1].z);
 }
 
@@ -744,31 +755,23 @@ double m7_rel_angle(double phi_o) {
     return w;
 }
 
+/* Enables/disables the stencil buffer */
+void m7_stencil_enable(int enable) {
+    mode7.stencil_enabled = enable;
+}
+
 void m7_set_stencil(unsigned int color) {
-#if M7_STENCIL
     bm_set_color(mode7.stencil, color);
-#endif
 }
 void m7_clear_stencil() {
-#if M7_STENCIL
     bm_set_color(mode7.stencil, 0);
     bm_clear(mode7.stencil);
-#endif
 }
 Bitmap *m7_get_stencil() {
-    assert(M7_STENCIL); /* You must have M7_STENCIL defined to use this */
-#if M7_STENCIL
     return mode7.stencil;
-#else
-    return NULL;
-#endif
 }
-unsigned int m7_stencil_at(int x, int y) {
-#if M7_STENCIL
+unsigned int m7_stencil_enable_at(int x, int y) {
     assert(x >= 0 && x < mode7.stencil->w);
     assert(y >= 0 && y < mode7.stencil->h);
     return bm_get(mode7.stencil, x, y);
-#else
-    return 0;
-#endif
 }
