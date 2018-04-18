@@ -18,6 +18,14 @@ http://www.coranac.com/tonc/text/mode7ex.htm
 
 #define FOG_RATIO 6/16
 
+/* These are defined here, because it is unlikely they will require changing */
+/* value for D, the draw plane distance */
+#define MODE7_D 256
+/* value for N, the near clipping pane */
+#define MODE7_N +24
+/* value for F, the far clipping pane */
+#define MODE7_F +1024
+
 /* For performance reasons you might want
 to disable the stencil buffer here */
 #ifndef M7_STENCIL
@@ -108,7 +116,7 @@ typedef float ZBUF_TYPE;
 
 #define ZBUF_SET(x,y,v) mode7.zbuf[(y) * mode7.W + (x)] = (v)
 #define ZBUF_GET(x,y) mode7.zbuf[(y) * mode7.W + (x)]
- 
+
 static struct {
 
     /* Position and Dimensions of the view plane */
@@ -611,11 +619,11 @@ void m7_draw_obj(Bitmap *dst, ObjMesh *obj, Vector3 pos, double yrot, unsigned i
         Vector3 n = v3_normalize(v3_cross(v3_sub(tri[2],tri[0]), v3_sub(tri[1],tri[0])));
 
         double intensity = (v3_dot(n, light_dir) + 1) / 2.0;
-        
-		intensity = intensity * 0.2 + 0.8;
-		unsigned int light = bm_lerp(0, color, intensity);
-		bm_set_color(dst, light);
-        
+
+        intensity = intensity * 0.2 + 0.8;
+        unsigned int light = bm_lerp(0, color, intensity);
+        bm_set_color(dst, light);
+
         m7_draw_tri(dst, tri);
     }
 

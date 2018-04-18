@@ -1,15 +1,7 @@
 #ifndef MODE7_H
 #define MODE7_H
 
-/* These are defined here, because it is unlikely they will require changing */
-/* value for D, the draw plane distance */
-#define MODE7_D 256
-/* value for N, the near clipping pane */
-#define MODE7_N +24
-/* value for F, the far clipping pane */
-#define MODE7_F +1024
-
-/* 3-dimentsional vector structure */
+/* 3-dimensional vector structure */
 typedef struct vector3 {
     double x,y,z;
 } Vector3;
