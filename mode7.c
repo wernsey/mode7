@@ -474,28 +474,30 @@ void m7_draw_sprite(Bitmap *dst, double wx, double wy, double wz, Bitmap *src, i
     }
 }
 
-static void horiz_line(Bitmap *bmp, int sx, int ex, int y, double sz, double ez, int col) {
+static void horiz_line(Bitmap *bmp, int sx, int ex, int y, int col, Vector3 n, double D) {
     int x;
-    double t;
-    if(sx > ex) {
-        t = sx; sx = ex; ex = t;
-        t = sz; sz = ez; ez = t;
+
+    if(ex < sx) {
+        x = sx; sx = ex; ex = x;
     }
 
-    double mz = ex > sx ? (ez - sz) / (ex - sx) : 0;
+    double z = -( sx * n.x + y * n.y + D ) / n.z;
+    double dZx = -n.x / n.z;
 
     assert(ex >= sx);
-    for(x = sx; x <= ex; x++, sz += mz) {
+
+    for(x = sx; x <= ex; x++, z += dZx) {
         if(x < 0) continue;
         else if(x >= mode7.W) break;
-        if(ZBUF_GET(x, y) > sz) {
+
+        if(ZBUF_GET(x, y) > z) {
 
             unsigned int c = col;
             if(mode7.fog_enabled)
-                c = bm_lerp(c, mode7.fog_color, sz * FOG_RATIO);
+                c = bm_lerp(c, mode7.fog_color, z * FOG_RATIO);
 
             bm_set(bmp, x + mode7.X, y + mode7.Y, c);
-            ZBUF_SET(x, y, sz);
+            ZBUF_SET(x, y, z);
             if(mode7.stencil_enabled)
                 bm_putpixel(mode7.stencil, x, y);
         }
@@ -506,35 +508,32 @@ static void rasterize_interp(Bitmap *bmp, const Vector3 v0, const Vector3 v1, co
 
     int v0y = v0.y, v1y = v1.y, v2y = v2.y;
 
+    Vector3 n = (v3_cross(v3_sub(v2,v0), v3_sub(v1,v0)));
+    if(n.z == 0) return;
+    double D = -v3_dot(v0, n);
+
     int y = v0y;
 
     if(v2y == v0y) return; /* degenerate case. */
 
     double mxB = (v2.x - v0.x)/(v2.y - v0.y);
-    double mzB = (v2.z - v0.z)/(v2.y - v0.y);
-
     double xA = v0.x, xB = v0.x;
-    double zA = v0.z, zB = v0.z;
 
     if(v1y > v0y) {
         double mxA = (v1.x - v0.x)/(v1.y - v0.y);
-        double mzA = (v1.z - v0.z)/(v1.y - v0.y);
-        for(; y < v1y; y++, xA += mxA, zA += mzA, xB += mxB, zB += mzB) {
+        for(; y < v1y; y++, xA += mxA, xB += mxB) {
             if(y < 0) continue;
             else if(y >= mode7.H) return;
-            horiz_line(bmp, xA, xB, y, zA, zB, bmp->color);
+            horiz_line(bmp, xA, xB, y, bmp->color,    n, D);
         }
     }
     xA = v1.x;
-    zA = v1.z;
-
     if(v2y > v1y) {
         double mxC = (v2.x - v1.x)/(v2.y - v1.y);
-        double mzC = (v2.z - v1.z)/(v2.y - v1.y);
-        for(; y < v2y; y++, xA += mxC, zA += mzC, xB += mxB, zB += mzB) {
+        for(; y < v2y; y++, xA += mxC, xB += mxB) {
             if(y < 0) continue;
             else if(y >= mode7.H) return;
-            horiz_line(bmp, xA, xB, y, zA, zB, bmp->color);
+            horiz_line(bmp, xA, xB, y, bmp->color, n, D);
         }
     }
 }
