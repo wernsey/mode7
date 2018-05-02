@@ -11,6 +11,11 @@
 
 #include "obj.h"
 
+#if defined(WIN32) && defined(_MSC_VER)
+#  define SAFE_C11
+#  define strdup _strdup
+#endif
+
 typedef struct {
     int sym,
         lastsym;
@@ -21,18 +26,22 @@ typedef struct {
 
     int s; /* smoothing group */
 
+    enum {MODE_OBJ, MODE_MTL} mode;
+
     jmp_buf buf; /* Exception handling */
     int line;    /* Error reporting */
     char error_buf[128];
 
 } OBJ_Parser;
 
-enum { V = 128, VT, VN, VP, F, L, G, S, MTLLIB, USEMTL, ID, NUM } Types;
+enum { V = 128, VT, VN, VP, F, L, G, S, MTLLIB, USEMTL, ID, NUM ,
+    NEWMTL, KA, KD, KS, TF, TR, ILLUM, NS, MAP_KD
+} Types;
 
 struct {
     int t;
     const char *name;
-} Command_Names[] = {
+} OBJ_Command_Names[] = {
     {V,"v"},
     {VT,"vt"},
     {VN,"vn"},
@@ -43,14 +52,35 @@ struct {
     {S,"s"},
     {MTLLIB,"mtllib"},
     {USEMTL,"usemtl"},
-    {ID,"identifier"},
-    {NUM,"number"},
+    {-1, NULL}
+},
+MTL_Command_Names[] = {
+    {NEWMTL,"newmtl"},
+    {KA,"Ka"},
+    {KD,"Kd"},
+    {KS,"Ks"},
+    {TF,"Tf"},
+    {TR,"Tr"},
+    {ILLUM,"illum"},
+    {NS,"Ns"},
+    {MAP_KD,"map_Kd"},
     {-1, NULL}
 };
 static const char *typename(int type) {
     int i;
-    for(i=0; Command_Names[i].name; i++) {
-        if(Command_Names[i].t == type) return Command_Names[i].name;
+    if(type == ID)
+        return "identifier";
+    if(type == NUM)
+        return "number";
+    if(type == '\n')
+        return "'\\n'";
+    if(type == '\0')
+        return "EOF";
+    for(i=0; OBJ_Command_Names[i].name; i++) {
+        if(OBJ_Command_Names[i].t == type) return OBJ_Command_Names[i].name;
+    }
+    for(i=0; MTL_Command_Names[i].name; i++) {
+        if(MTL_Command_Names[i].t == type) return MTL_Command_Names[i].name;
     }
     return "--";
 }
@@ -80,11 +110,11 @@ static int accept(OBJ_Parser *p, int s) {
 static int expect(OBJ_Parser *p, int s) {
     if(accept(p, s))
         return 1;
-    error(p,"%s expected\n", typename(s));
+    error(p,"`%s` expected\n", typename(s));
     return 0;
 }
 
-static void init(OBJ_Parser *p, char *text) {
+static void _init(OBJ_Parser *p, char *text) {
     p->sym = 0;
     p->word[0] = 0;
     p->lastsym = 0;
@@ -93,6 +123,15 @@ static void init(OBJ_Parser *p, char *text) {
     p->lex = text;
     p->line = 1;
     p->s = 0;
+}
+static void init_OBJ(OBJ_Parser *p, char *text) {
+    _init(p, text);
+    p->mode = MODE_OBJ;
+    nextsym(p);
+}
+static void init_MTL(OBJ_Parser *p, char *text) {
+    _init(p, text);
+    p->mode = MODE_MTL;
     nextsym(p);
 }
 
@@ -124,16 +163,19 @@ space:
                 error(p, "identifier too long\n");
         } while(isgraph(p->lex[0]));
         p->word[l] = '\0';
-        if(!strcmp(p->word, "v"))  SYMBOL(V);
-        if(!strcmp(p->word, "vt")) SYMBOL(VT);
-        if(!strcmp(p->word, "vn")) SYMBOL(VN);
-        if(!strcmp(p->word, "f"))  SYMBOL(F);
-        if(!strcmp(p->word, "l"))  SYMBOL(L);
-        if(!strcmp(p->word, "vp"))  SYMBOL(VP);
-        if(!strcmp(p->word, "g"))  SYMBOL(G);
-        if(!strcmp(p->word, "s"))  SYMBOL(S);
-        if(!strcmp(p->word, "usemtl"))  SYMBOL(USEMTL);
-        if(!strcmp(p->word, "mtllib"))  SYMBOL(MTLLIB);
+        if(p->mode == MODE_OBJ) {
+            int i;
+            for(i=0; OBJ_Command_Names[i].name; i++) {
+                if(!strcmp(p->word, OBJ_Command_Names[i].name))
+                    SYMBOL(OBJ_Command_Names[i].t);
+            }
+        } else if(p->mode == MODE_MTL) {
+            int i;
+            for(i=0; MTL_Command_Names[i].name; i++) {
+                if(!strcmp(p->word, MTL_Command_Names[i].name))
+                    SYMBOL(MTL_Command_Names[i].t);
+            }
+        }
         SYMBOL(ID);
     } else if(isdigit(p->lex[0])) {
         do {
@@ -300,7 +342,7 @@ static void parse_element(OBJ_Parser *p, ObjMesh *obj) {
     } else if(accept(p, L)) {
         ObjLine *l = obj_add_line(obj);
         while(accept(p, '-') || accept(p, NUM)) {
-            int idx;
+            unsigned int idx;
             if(p->lastsym == '-') {
                 expect(p, NUM);
                 idx = obj->nverts - atoi(p->lastword);
@@ -337,6 +379,8 @@ static void parse_element(OBJ_Parser *p, ObjMesh *obj) {
         }
 
     } else {
+        /* Maybe I can just ignore commands I don't understand, as
+        I do for the materials. */
         error(p, "Unexpected %s\n", typename(p->sym));
     }
     if(p->sym == '\0') return;
@@ -350,13 +394,19 @@ static void parse(OBJ_Parser *p, ObjMesh *obj) {
     }
 }
 
-static char *_obj_readf(const char *fname) {
+static char *slurp(const char *fname) {
     FILE *f;
     long len;
     char *str;
 
+#ifdef SAFE_C11
+    errno_t err = fopen_s(&f, fname, "rb");
+    if (err != 0)
+        return NULL;
+#else
     if(!(f = fopen(fname, "rb")))
         return NULL;
+#endif
 
     fseek(f, 0, SEEK_END);
     len = ftell(f);
@@ -405,12 +455,12 @@ const char *obj_last_error() {
 
 ObjMesh *obj_load(const char *fname) {
     OBJ_Parser parser;
-    char *text = _obj_readf(fname);
+    char *text = slurp(fname);
     if(!text) {
         snprintf(Error_Buf, sizeof Error_Buf, "OBJ: couldn't open %s: %s\n", fname, strerror(errno));
         return NULL;
     }
-    init(&parser, text);
+    init_OBJ(&parser, text);
 
     ObjMesh *obj = obj_create();
 
@@ -429,7 +479,7 @@ ObjMesh *obj_load(const char *fname) {
 }
 
 void obj_free(ObjMesh *obj) {
-    int i;
+    unsigned int i;
     free(obj->verts);
     free(obj->norms);
     free(obj->texs);
@@ -444,7 +494,8 @@ void obj_free(ObjMesh *obj) {
 }
 
 static void _obj_out(ObjMesh *obj, FILE *o) {
-    int i, g = -1, s = 0;
+    unsigned int i;
+    int g = -1, s = 0;
     fprintf(o,"# x extents: %g %g  (%g)\n", obj->xmin, obj->xmax, obj->xmax - obj->xmin);
     fprintf(o,"# y extents: %g %g  (%g)\n", obj->ymin, obj->ymax, obj->ymax - obj->ymin);
     fprintf(o,"# z extents: %g %g  (%g)\n", obj->zmin, obj->zmax, obj->zmax - obj->zmin);
@@ -507,7 +558,7 @@ static void _obj_out(ObjMesh *obj, FILE *o) {
     if(obj->nlines) {
         fprintf(o,"# %d lines\n", obj->nlines);
         for(i = 0; i < obj->nlines; i++) {
-            int j;
+            unsigned int j;
             ObjLine *l = &obj->lines[i];
             if(!l->n) continue;
             fputs("l ", o);
@@ -521,17 +572,156 @@ static void _obj_out(ObjMesh *obj, FILE *o) {
 }
 
 int obj_save(ObjMesh *obj, const char *fname) {
-    FILE *f = fopen(fname, "w");
-    if(!f) {
+    FILE *f;
+#ifdef SAFE_C11
+    errno_t err = fopen_s(&f, fname, "w");
+    if (err != 0) {
         snprintf(Error_Buf, sizeof Error_Buf, "OBJ: couldn't open %s: %s\n", fname, strerror(errno));
         return 0;
     }
+#else
+    f = fopen(fname, "w");
+    if (!f) {
+        snprintf(Error_Buf, sizeof Error_Buf, "OBJ: couldn't open %s: %s\n", fname, strerror(errno));
+        return 0;
+    }
+#endif
     _obj_out(obj, f);
     fclose(f);
     return 1;
 }
 
-#ifdef TEST
+MtlLibrary *mtl_create() {
+    MtlLibrary *lib = malloc(sizeof *lib);
+    memset(lib, 0, sizeof *lib);
+    lib->n = 0;
+    lib->a = 4;
+    lib->mtls = calloc(lib->a, sizeof *lib->mtls);
+    return lib;
+}
+void mtl_free(MtlLibrary *lib) {
+    unsigned int i;
+    for(i = 0; i < lib->n; i++) {
+        Material *m = &lib->mtls[i];
+        free(m->name);
+        if(m->Ka.type == mtl_spectral) free(m->Ka.spec.name);
+        if(m->Kd.type == mtl_spectral) free(m->Kd.spec.name);
+        if(m->Ks.type == mtl_spectral) free(m->Ks.spec.name);
+        if(m->Tf.type == mtl_spectral) free(m->Tf.spec.name);
+    }
+    free(lib->mtls);
+    free(lib);
+}
+Material *mtl_add(MtlLibrary *lib, const char *name) {
+    if(lib->n == lib->a) {
+        lib->a += lib->a >> 1;
+        lib->mtls = realloc(lib->mtls, lib->a * sizeof *lib->mtls);
+    }
+    Material *m = &lib->mtls[lib->n++];
+    m->name = _strdup(name);
+    return m;
+}
+static MtlColor parse_mtl_color(OBJ_Parser *p) {
+    MtlColor col;
+    col.type = mtl_rgb;
+    col.rgb.r = 1.0;
+    col.rgb.g = 1.0;
+    col.rgb.b = 1.0;
+
+    if(accept(p, ID)) {
+        // FIXME: Expect `spectral` or `xyz`
+    } else {
+        col.rgb.r = read_float(p);
+        col.rgb.g = read_float(p);
+        col.rgb.b = read_float(p);
+    }
+    return col;
+}
+static void mtl_parse(OBJ_Parser *p, MtlLibrary *lib) {
+    Material *mtl = NULL;
+    while(p->sym != '\0') {
+        if(accept(p, '\n')) continue;
+        if(accept(p, NEWMTL)) {
+            expect(p, ID);
+            mtl = mtl_add(lib, p->lastword);
+        } else {
+            if(!mtl)
+                error(p, "`newmtl` expected, got `%s`\n", typename(p->sym));
+            if(accept(p, KA))
+                mtl->Ka = parse_mtl_color(p);
+            else if(accept(p, KD))
+                mtl->Kd = parse_mtl_color(p);
+            else if(accept(p, KS))
+                mtl->Ks = parse_mtl_color(p);
+            else if(accept(p, TF))
+                mtl->Tf = parse_mtl_color(p);
+            else {
+#if 1
+                /* Just ignore commands you don't understand */
+                while(p->sym != '\n' && p->sym != '\0')
+                    nextsym(p);
+#else
+                error(p, "Unknown command `%s`\n", p->word);
+#endif
+            }
+        }
+    }
+}
+MtlLibrary *mtl_load(const char *fname) {
+    OBJ_Parser parser;
+    char *text = slurp(fname);
+    if(!text) {
+        snprintf(Error_Buf, sizeof Error_Buf, "MTL: couldn't open %s: %s\n", fname, strerror(errno));
+        return NULL;
+    }
+    init_MTL(&parser, text);
+
+    MtlLibrary *lib = mtl_create();
+
+    if(!setjmp(parser.buf)) {
+        Error_Buf[0] = '\0';
+        mtl_parse(&parser, lib);
+    } else {
+        strncpy(Error_Buf, parser.error_buf, sizeof Error_Buf);
+        Error_Buf[sizeof Error_Buf - 1] = '\0';
+        mtl_free(lib);
+        lib = NULL;
+    }
+
+    free(text);
+    return lib;
+}
+static void col_out(const char *name, MtlColor col, FILE *out) {
+    if(col.type == mtl_rgb) {
+        fprintf(out, "%s %g %g %g\n", name, col.rgb.r, col.rgb.g, col.rgb.b);
+    } else if(col.type == mtl_spectral) {
+        fprintf(out, "%s spectral %s %g\n", name, col.spec.name, col.spec.factor);
+    } else if(col.type == mtl_xyz) {
+        fprintf(out, "%s xyz %g %g %g\n", name, col.xyz.x, col.xyz.y, col.xyz.z);
+    }
+}
+static void _mtl_out(MtlLibrary *lib, FILE *out) {
+    unsigned int i;
+    for(i = 0; i < lib->n; i++) {
+        Material *mtl = &lib->mtls[i];
+        fprintf(out, "newmtl %s\n", mtl->name);
+        col_out("Ka", mtl->Ka, out);
+        col_out("Kd", mtl->Kd, out);
+        col_out("Ks", mtl->Ks, out);
+        col_out("Tf", mtl->Tf, out);
+    }
+}
+int mtl_save(MtlLibrary *lib, const char *fname) {
+    FILE *f = fopen(fname, "w");
+    if(!f) {
+        snprintf(Error_Buf, sizeof Error_Buf, "MTL: couldn't open %s: %s\n", fname, strerror(errno));
+        return 0;
+    }
+    _mtl_out(lib, f);
+    fclose(f);
+    return 1;
+}
+#if defined(TEST)
 /* gcc -g -Wall -DTEST obj.c */
 int main(int argc, char *argv[]) {
     if(argc < 2) return 0;
@@ -544,6 +734,21 @@ int main(int argc, char *argv[]) {
     }
     _obj_out(obj, stdout);
     obj_free(obj);
+    return 0;
+}
+#elif defined(MTL_TEST)
+/* gcc -g -Wall -DMTL_TEST obj.c */
+int main(int argc, char *argv[]) {
+    if(argc < 2) return 0;
+
+    MtlLibrary *lib = mtl_load(argv[1]);
+    if(!lib) {
+        fputs(obj_last_error(), stderr);
+        fprintf(stderr, "Unable to load MTL %s", argv[1]);
+        return 1;
+    }
+    _mtl_out(lib, stdout);
+    mtl_free(lib);
     return 0;
 }
 #endif

@@ -37,23 +37,23 @@ typedef struct {
 } ObjUVW;
 
 typedef struct {
-	int v, vt, vn;
+    int v, vt, vn;
 } ObjFaceVert;
 
 typedef struct {
     /* OBJ supports more than 3 vertices per face;
     I cater for that by just adding more triangles as a triangle strip.*/
     ObjFaceVert verts[3];
-	int g, s;
+    int g, s;
 } ObjFace;
 
 typedef struct {
-	char *name;
+    char *name;
 } ObjGroup;
 
 typedef struct {
-	unsigned int n, a;
-	int *idx;
+    unsigned int n, a;
+    int *idx;
 } ObjLine;
 
 typedef struct ObjMesh {
@@ -84,6 +84,30 @@ typedef struct ObjMesh {
     double zmin, zmax;
 } ObjMesh;
 
+typedef struct {
+    enum {mtl_none, mtl_rgb, mtl_spectral, mtl_xyz} type;
+    union {
+        struct { double r, g, b; } rgb;
+        struct { char *name; double factor; } spec;
+        struct { double x, y, z; } xyz;
+    };
+} MtlColor;
+typedef struct {
+    char *name;
+    MtlColor Ka;
+    MtlColor Kd;
+    MtlColor Ks;
+    MtlColor Tf;
+    double Tr;
+    int illum;
+    double Ns;
+} Material;
+
+typedef struct {
+    unsigned int n, a;
+    Material *mtls;
+} MtlLibrary;
+
 ObjMesh *obj_create();
 ObjMesh *obj_load(const char *fname);
 void obj_free(ObjMesh *obj);
@@ -99,5 +123,11 @@ ObjFace *obj_add_face(ObjMesh *obj);
 ObjGroup *obj_add_group(ObjMesh *obj);
 ObjLine *obj_add_line(ObjMesh *obj);
 void obj_line_add_vtx(ObjLine *l, int i);
+
+MtlLibrary *mtl_create();
+void mtl_free(MtlLibrary *lib);
+Material *mtl_add(MtlLibrary *lib, const char *name);
+MtlLibrary *mtl_load(const char *fname);
+int mtl_save(MtlLibrary *lib, const char *fname);
 
 #endif

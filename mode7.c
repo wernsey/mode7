@@ -5,6 +5,7 @@ http://www.coranac.com/tonc/text/mode7ex.htm
 */
 #include <stdlib.h>
 #include <string.h>
+#define _USE_MATH_DEFINES
 #include <math.h>
 #include <float.h>
 #include <assert.h>
@@ -114,7 +115,7 @@ The actual Mode 7 code
 
 typedef float ZBUF_TYPE;
 
-#define ZBUF_SET(x,y,v) mode7.zbuf[(y) * mode7.W + (x)] = (v)
+#define ZBUF_SET(x,y,v) mode7.zbuf[(y) * mode7.W + (x)] = (ZBUF_TYPE)(v)
 #define ZBUF_GET(x,y) mode7.zbuf[(y) * mode7.W + (x)]
 
 static struct {
@@ -258,8 +259,8 @@ void m7_draw_floor(Bitmap *dst, m7_plotfun plotfun, void *data) {
     double l;
 
     /* Equation 21.9c: we don't need to draw anything above the horizon */
-    int yph = mode7.D / mode7.F * (mode7.F * mode7.C.w.y - mode7.acw.y) / mode7.C.v.y;
-    int ysh = mode7.T - yph;
+    int yph = (int)(mode7.D / mode7.F * (mode7.F * mode7.C.w.y - mode7.acw.y) / mode7.C.v.y);
+    int ysh = (int)(mode7.T - yph);
     if(ysh < 0) ysh = 0;
 
     /* Refer to Eq 21.14 of the abovementioned Mode 7 book. */
@@ -289,8 +290,8 @@ void m7_draw_floor(Bitmap *dst, m7_plotfun plotfun, void *data) {
 
 void m7_draw_skybox(Bitmap *dst, Bitmap *src, int height, unsigned int background) {
     /* Equation 21.9c: */
-    int yph = mode7.D / mode7.F * (mode7.F * mode7.C.w.y - mode7.acw.y) / mode7.C.v.y;
-    int ysh = mode7.T - yph + 1;
+    int yph = (int)(mode7.D / mode7.F * (mode7.F * mode7.C.w.y - mode7.acw.y) / mode7.C.v.y);
+    int ysh = (int)(mode7.T - yph + 1);
 
     if(height <= 0) height = src->h;
 
@@ -463,77 +464,106 @@ void m7_draw_sprite(Bitmap *dst, double wx, double wy, double wz, Bitmap *src, i
 
     if(-zc < mode7.N || -zc > mode7.F) return; /* near/far clipping plane */
 
-    dw = (double)sw/l;
-    dh = (double)sh/l;
+    dw = (int)((double)sw/l);
+    dh = (int)((double)sh/l);
 
     if(mode7.anchor == M7_ANCHOR_BOTTOM) {
         /* To anchor the sprites at the bottom: */
-        blit_zbuf(dst, xs.x - dw/2, xs.y - dh, dw, dh, l, src, sx, sy, sw, sh);
+        blit_zbuf(dst, (int)(xs.x - dw/2), (int)(xs.y - dh), (int)dw, (int)dh, l, src, sx, sy, sw, sh);
     } else {
-        blit_zbuf(dst, xs.x - dw/2, xs.y - dh/2, dw, dh, l, src, sx, sy, sw, sh);
+        blit_zbuf(dst, (int)(xs.x - dw/2), (int)(xs.y - dh/2), (int)dw, (int)dh, l, src, sx, sy, sw, sh);
     }
 }
 
-static void horiz_line(Bitmap *bmp, int sx, int ex, int y, int col, Vector3 n, double D) {
-    int x;
 
-    if(ex < sx) {
-        x = sx; sx = ex; ex = x;
-    }
 
-    double z = -( sx * n.x + y * n.y + D ) / n.z;
-    double dZx = -n.x / n.z;
-
-    assert(ex >= sx);
-
-    for(x = sx; x <= ex; x++, z += dZx) {
-        if(x < 0) continue;
-        else if(x >= mode7.W) break;
-
-        if(ZBUF_GET(x, y) > z) {
-
-            unsigned int c = col;
-            if(mode7.fog_enabled)
-                c = bm_lerp(c, mode7.fog_color, z * FOG_RATIO);
-
-            bm_set(bmp, x + mode7.X, y + mode7.Y, c);
-            ZBUF_SET(x, y, z);
-            if(mode7.stencil_enabled)
-                bm_putpixel(mode7.stencil, x, y);
-        }
-    }
-}
+/*****************************************************************/
+#define INTERP(P0, P1, O, t, n) do{int i;for(i=0;i<n;i++)O[i]=(P1[i]-P0[i])*t+P0[i];}while(0)
 
 static void rasterize_interp(Bitmap *bmp, const Vector3 v0, const Vector3 v1, const Vector3 v2) {
 
-    int v0y = v0.y, v1y = v1.y, v2y = v2.y;
+    int v[3][2];
+    v[0][0] = (int)(v0.x + 0.5);
+    v[0][1] = (int)(v0.y + 0.5);
+    v[1][0] = (int)(v1.x + 0.5);
+    v[1][1] = (int)(v1.y + 0.5);
+    v[2][0] = (int)(v2.x + 0.5);
+    v[2][1] = (int)(v2.y + 0.5);
 
-    Vector3 n = (v3_cross(v3_sub(v2,v0), v3_sub(v1,v0)));
-    if(n.z == 0) return;
-    double D = -v3_dot(v0, n);
+    if(v[0][1] == v[1][1] && v[0][1] == v[2][1]) return;
 
-    int y = v0y;
+    static double W[3][3] = { {1,0,0}, {0,1,0}, {0,0,1} };
 
-    if(v2y == v0y) return; /* degenerate case. */
+    unsigned int color0 = bm_get_color(bmp);
 
-    double mxB = (v2.x - v0.x)/(v2.y - v0.y);
-    double xA = v0.x, xB = v0.x;
+    int x0, y0;
+    for(y0 = v[0][1]; y0 <= v[2][1]; y0++) {
 
-    if(v1y > v0y) {
-        double mxA = (v1.x - v0.x)/(v1.y - v0.y);
-        for(; y < v1y; y++, xA += mxA, xB += mxB) {
-            if(y < 0) continue;
-            else if(y >= mode7.H) return;
-            horiz_line(bmp, xA, xB, y, bmp->color,    n, D);
+        if(y0 < 0) continue;
+        if(y0 >= mode7.H) break;
+
+        int bot = (y0 > v[1][1]) || (v[1][1] == v[0][1]); // Bottom part of triangle?
+
+        double P[2][2];
+        int xs, xe; // X start/end
+        double Q[2][3], *q0, *q1;
+
+        double alpha = (double)(y0 - v[0][1]) / (v[2][1] - v[0][1]);
+        INTERP(v[0], v[2], P[0], alpha, 2);
+        INTERP(W[0], W[2], Q[0], alpha, 3);
+
+        if(bot) {
+            double beta = (double)(y0 - v[1][1]) / (v[2][1] - v[1][1]);
+            INTERP(v[1], v[2], P[1], beta, 2);
+            INTERP(W[1], W[2], Q[1], beta, 3);
+        } else {
+            double beta = (double)(y0 - v[0][1]) / (v[1][1] - v[0][1]);
+            INTERP(v[0], v[1], P[1], beta, 2);
+            INTERP(W[0], W[1], Q[1], beta, 3);
         }
-    }
-    xA = v1.x;
-    if(v2y > v1y) {
-        double mxC = (v2.x - v1.x)/(v2.y - v1.y);
-        for(; y < v2y; y++, xA += mxC, xB += mxB) {
-            if(y < 0) continue;
-            else if(y >= mode7.H) return;
-            horiz_line(bmp, xA, xB, y, bmp->color, n, D);
+
+        if(P[0][0] <= P[1][0]) {
+            xs = (int)P[0][0]; xe = (int)P[1][0];
+            q0 = Q[0]; q1 = Q[1];
+        } else {
+            xs = (int)P[1][0]; xe = (int)P[0][0];
+            q0 = Q[1]; q1 = Q[0];
+        }
+
+        double denom = 1.0 / (double)(xe - xs + 1);
+        double dw[3], *w = q0;
+        dw[0] = (q1[0] - q0[0]) * denom;
+        dw[1] = (q1[1] - q0[1]) * denom;
+        dw[2] = (q1[2] - q0[2]) * denom;
+
+        if(xs < 0) {
+            int dx = -xs;
+            w[0] += dw[0] * dx;
+            w[1] += dw[1] * dx;
+            w[2] += dw[2] * dx;
+            xs = 0;
+        }
+        if(xe >= mode7.W) {
+            xe = mode7.W - 1;
+        }
+
+        for(x0 = xs; x0 <= xe; x0++) {
+            w[0] += dw[0];
+            w[1] += dw[1];
+            w[2] += dw[2];
+
+            double z = v0.z * w[0] + v1.z * w[1] + v2.z * w[2];
+
+            if(z >= 0 && z < ZBUF_GET(x0, y0)) {
+                unsigned int c = color0;
+                if(mode7.fog_enabled)
+                    c = bm_lerp(c, mode7.fog_color, z * FOG_RATIO);
+
+                bm_set(bmp, x0 + mode7.X, y0 + mode7.Y, c);
+                ZBUF_SET(x0, y0, z);
+                if(mode7.stencil_enabled)
+                    bm_putpixel(mode7.stencil, x0, y0);
+            }
         }
     }
 }
@@ -562,6 +592,7 @@ static void rasterize(Bitmap *bmp, const Vector3 v[3]) {
         }
     }
 }
+/*****************************************************************/
 
 void m7_draw_tri(Bitmap *bmp, Vector3 tri[3]) {
     Vector3 proj[3];
@@ -595,7 +626,7 @@ void m7_draw_tri(Bitmap *bmp, Vector3 tri[3]) {
 }
 
 void m7_draw_obj(Bitmap *dst, ObjMesh *obj, Vector3 pos, double yrot, unsigned int color) {
-    int i, j;
+    unsigned int i, j;
     if(!obj)
         return;
 
@@ -609,7 +640,7 @@ void m7_draw_obj(Bitmap *dst, ObjMesh *obj, Vector3 pos, double yrot, unsigned i
         Vector3 tri[3];
 
         for(j = 0; j < 3; j++) {
-            assert(f->verts[j].v < obj->nverts);
+            assert(f->verts[j].v < (int)obj->nverts);
             ObjVert *v = obj->verts + f->verts[j].v;
             tri[j].x = -cosAngle * v->x + sinAngle * v->z + pos.x;
             tri[j].y = v->y + pos.y;
@@ -630,7 +661,7 @@ void m7_draw_obj(Bitmap *dst, ObjMesh *obj, Vector3 pos, double yrot, unsigned i
     bm_set_color(dst, 0);
     for(i = 0; i < obj->nlines; i++) {
         Vector3 p[2];
-        int j;
+        unsigned int j;
         ObjLine *l = &obj->lines[i];
         ObjVert *v = obj->verts + l->idx[0];
         p[1].x = (-cosAngle * v->x + sinAngle * v->z) + pos.x;
@@ -742,7 +773,7 @@ void m7_line(Bitmap *bmp, Vector3 p0, Vector3 p1) {
         !m7_project(p1, &proj[1]))
         return;
 
-    draw_line(bmp, proj[0].x, proj[0].y, proj[0].z, proj[1].x, proj[1].y, proj[1].z);
+    draw_line(bmp, (int)proj[0].x, (int)proj[0].y, proj[0].z, (int)proj[1].x, (int)proj[1].y, proj[1].z);
 }
 
 void m7_lookat(double x, double y, double z) {

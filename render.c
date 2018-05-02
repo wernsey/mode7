@@ -1,4 +1,5 @@
 #include <stdlib.h>
+#define _USE_MATH_DEFINES
 #include <math.h>
 #include <assert.h>
 
@@ -50,8 +51,8 @@ static unsigned int the_plotfun(void *data, double pwx, double pwz) {
 
     if(pwx >= 0 && pwx < 320 && pwz >= 0 && pwz < 320) {
 
-        int mx = pwx / 20;
-        int my = pwz / 20;
+        int mx = (int)(pwx / 20);
+        int my = (int)(pwz / 20);
 
         /* TODO: Use mx/my to look up the tile on a "map" data structure;
         For now, we just draw the tile at 4,1
@@ -78,8 +79,8 @@ static unsigned int the_plotfun(void *data, double pwx, double pwz) {
         int tx = 4 * 20;
         int ty = 1 * 20;
 
-        int sx = (int)abs(pwx) % 20;
-        int sy = (int)abs(pwz) % 20;
+        int sx = abs((int)pwx) % 20;
+        int sy = abs((int)pwz) % 20;
         if(pwx < 0) sx = 19 - sx;
         if(pwz < 0) sy = 19 - sy;
 
@@ -261,8 +262,8 @@ void init_game(int argc, char *argv[]) {
     m7_init(10, 10, SCREEN_WIDTH - 20, SCREEN_HEIGHT - 20);
 
     m7_enable_fog(0x8090A0);
-	
-	m7_anchor_mode(M7_ANCHOR_BOTTOM);
+
+    m7_anchor_mode(M7_ANCHOR_BOTTOM);
 
     m7_set_camera_pos(160, 25, 320);
     m7_set_camera_ang(0, 0 * M_PI / 180);
